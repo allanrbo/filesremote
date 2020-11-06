@@ -1,5 +1,13 @@
-Linux
-=====
+Sftpgui
+=======
+
+A no-nonsense SFTP file browser. Downloads and opens files in local editors and uploads when changes are detected.
+
+Cross platform with fairly native feel (uses wxWidgets).
+
+
+Linux build
+-----------
 
 Followed https://www.binarytides.com/install-wxwidgets-ubuntu/ .
 
@@ -27,12 +35,12 @@ Prereqs:
 
 Compiling:
 
-    g++ main.cpp `../wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core` -I../libssh2/include/ ../libssh2/bin/src/libssh2.a -lcrypto -o sftpgui
+    g++ -std=c++17 main.cpp `../wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core` -I../libssh2/include/ ../libssh2/bin/src/libssh2.a -lcrypto -o sftpgui
 
 
 
-MacOS
-=====
+MacOS build
+-----------
 
 Prereqs:
 
@@ -48,11 +56,11 @@ Prereqs:
 
 Compiling:
 
-    g++ -std=c++14 main.cpp `$HOME/dev/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core | sed "s/-ljpeg//g" | sed "s/-ltiff//g"` -lz /usr/local/lib/libssh2.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libssl.a -o sftpgui
+    g++ -std=c++17 main.cpp `$HOME/dev/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core | sed "s/-ljpeg//g" | sed "s/-ltiff//g"` -lz /usr/local/lib/libssh2.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libssl.a -o sftpgui
 
 
-Windows
-=======
+Windows build
+-------------
 
 Use msys2 (not the old msys).
 
@@ -94,9 +102,9 @@ Compiling:
 
     cd /z/dev/sftpgui
     `$HOME/wxWidgets-3.1.4/wx-config --rescomp` resource.rc resource.o
-    g++ main.cpp resource.o --static `$HOME/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs` -I/home/Allan/libssh2-1.9.0/include /home/Allan/libssh2-1.9.0/src/.libs/libssh2.a -lssl -lcrypto -lz -lws2_32 -o sftpgui.exe
+    g++ -std=c++17 main.cpp resource.o --static `$HOME/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs` -I$HOME/libssh2-1.9.0/include $HOME/libssh2-1.9.0/src/.libs/libssh2.a -lssl -lcrypto -lz -lws2_32 -o sftpgui.exe
 
     # to get console output...
-     g++ -mconsole -Wl,--subsystem,console main.cpp resource.o --static `$HOME/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs` -I/home/Allan/libssh2-1.9.0/include /home/Allan/libssh2-1.9.0/src/.libs/libssh2.a -lssl -lcrypto -lz -lws2_32 -mconsole -Wl,--subsystem,console -o sftpgui.exe
+    g++ -std=c++17 -mconsole -Wl,--subsystem,console main.cpp resource.o --static `$HOME/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs` -I$HOME/libssh2-1.9.0/include $HOME/libssh2-1.9.0/src/.libs/libssh2.a -lssl -lcrypto -lz -lws2_32 -mconsole -Wl,--subsystem,console -o sftpgui.exe
 
     # TODO use wincng instead of openssl... -lbcrypt -lcrypt32

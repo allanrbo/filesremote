@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 project(sftpgui)
 
+SET(CMAKE_CXX_STANDARD 17)
+
 set(ENV{CMAKE_PREFIX_PATH} /home/allan/dev/wxWidgets-3.1.4)
 
 find_package(wxWidgets COMPONENTS core base REQUIRED)

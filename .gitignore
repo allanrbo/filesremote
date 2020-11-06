@@ -1,5 +1,6 @@
 /.idea
 /cmake-build-debug
+/sftpgui
 *.out
 *.o
 *.exe
