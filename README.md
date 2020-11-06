@@ -5,6 +5,10 @@ A no-nonsense SFTP file browser. Downloads and opens files in local editors and 
 
 Cross platform with fairly native feel (uses wxWidgets).
 
+Lint
+----
+
+    cpplint --linelength=120 --filter=-whitespace/indent main.cpp
 
 Linux build
 -----------
