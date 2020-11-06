@@ -1,3 +1,12 @@
+// Copyright 2020 Allan Riordan Boll
+
+#include <string>
+#include <vector>
+#include <stdexcept>
+#include <memory>
+#include <filesystem>
+#include <sstream>
+
 #ifdef _WIN32
 
 #include <winsock2.h>
@@ -13,13 +22,6 @@
 
 #include <stdio.h>
 
-#include <string>
-#include <vector>
-#include <stdexcept>
-#include <memory>
-#include <filesystem>
-#include <sstream>
-
 #include <wx/wx.h>
 #include <wx/listctrl.h>
 #include <wx/imaglist.h>
@@ -30,22 +32,29 @@
 #include <wx/config.h>
 #include <wx/fileconf.h>
 #include <wx/preferences.h>
-
-
-#include <wx/dataview.h>   // TODO used?
+#include <wx/dataview.h>
 
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 
-using namespace std;
+using std::string;
+using std::to_string;
+using std::runtime_error;
+using std::vector;
+using std::unique_ptr;
+using std::stringstream;
+using std::make_unique;
+using std::filesystem::file_time_type;
+using std::filesystem::create_directories;
+using std::filesystem::last_write_time;
+using std::filesystem::remove;
 
 #define BUFLEN 4096
-
 
 void showException() {
     wxString error;
     try {
-        throw; // Rethrow the current exception in order to pattern match it here.
+        throw;  // Rethrow the current exception in order to pattern match it here.
     } catch (const std::exception &e) {
         error = e.what();
     } catch (...) {
@@ -60,11 +69,18 @@ class DirEntry {
 public:
     string name;
     uint64_t size = 0;
-    unsigned long modified = 0;
-    unsigned long permissions;
+    uint64_t modified = 0;
+    uint64_t mode;
+    string mode_str;
     string owner;
     string group;
     bool isDir;
+
+    string modifiedFormatted() {
+        auto t = wxDateTime((time_t)this->modified);
+        t.MakeUTC();
+        return t.FormatISOCombined(' ').ToStdString();
+    }
 };
 
 class SftpConnection {
@@ -91,7 +107,7 @@ public:
 #ifdef WIN32
         WSADATA wsadata;
         rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
-        if(rc != 0) {
+        if (rc != 0) {
             throw runtime_error("WSAStartup failed (" + to_string(rc) + ")");
         }
 #endif
@@ -113,7 +129,7 @@ public:
                 throw runtime_error("gethostbyname failed");
             }
 
-            sin.sin_addr.s_addr = *(u_long *) remote_host->h_addr_list[0];
+            sin.sin_addr.s_addr = *reinterpret_cast<u_long *>(remote_host->h_addr_list[0]);
         }
 
         if (connect(this->sock, (struct sockaddr *) (&sin), sizeof(struct sockaddr_in)) != 0) {
@@ -132,8 +148,8 @@ public:
             throw runtime_error("libssh2_session_handshake failed (" + to_string(rc) + ")");
         }
 
-        // TODO: verify fingerprint = libssh2_hostkey_hash(session, LIBSSH2_HOSTKEY_HASH_SHA1);
-        //char *userauthlist = libssh2_userauth_list(this->session, username.c_str(), username.size());
+        // TODO(allan): verify fingerprint = libssh2_hostkey_hash(session, LIBSSH2_HOSTKEY_HASH_SHA1);
+        //// char *userauthlist = libssh2_userauth_list(this->session, username.c_str(), username.size());
 
         LIBSSH2_AGENT *agent = libssh2_agent_init(this->session);
         if (!agent) {
@@ -185,13 +201,14 @@ public:
 
         auto files = vector<DirEntry>();
         while (1) {
+            LIBSSH2_SFTP_ATTRIBUTES attrs;
             char name[BUFLEN];
             char line[BUFLEN];
-            LIBSSH2_SFTP_ATTRIBUTES attrs;
             memset(name, 0, BUFLEN);
             memset(line, 0, BUFLEN);
 
             rc = libssh2_sftp_readdir_ex(this->sftp_opendir_handle, name, sizeof(name), line, sizeof(line), &attrs);
+
             if (rc == LIBSSH2_ERROR_EAGAIN) {
                 continue;
             }
@@ -216,9 +233,38 @@ public:
                 d.modified = attrs.mtime;
             }
             if (attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) {
-                d.permissions = attrs.permissions;
+                d.mode = attrs.permissions;
                 d.isDir = attrs.permissions & S_IFDIR;
+
+                // TODO(allan): is line always guaranteed to have the mode string?
+                char mode_c_str[11];
+                memcpy(mode_c_str, line, 10);
+                mode_c_str[10] = '\0';
+                d.mode_str = string(mode_c_str);
             }
+
+            // Extract user and group from the free text line.
+            stringstream s(line);
+            string segment;
+            vector<string> parts;
+            int field_num = 0;
+            while (getline(s, segment, ' ')) {
+                if (segment.empty()) {
+                    continue;
+                }
+
+                if (field_num == 2) {
+                    d.owner = string(segment);
+                }
+
+                if (field_num == 3) {
+                    d.group = string(segment);
+                }
+
+                field_num++;
+            }
+
+
             files.push_back(d);
         }
 
@@ -247,7 +293,7 @@ public:
             int rc = libssh2_sftp_read(this->sftp_openfile_handle, buf, BUFLEN);
             if (rc > 0) {
                 fwrite(buf, 1, rc, this->local_file_handle);
-                // TODO error handling for fwrite.
+                // TODO(allan): error handling for fwrite.
             } else if (rc == 0) {
                 break;
             } else {
@@ -265,7 +311,7 @@ public:
         this->sftp_openfile_handle = libssh2_sftp_open(
                 this->sftp_session,
                 remoteDstPath.c_str(),
-                LIBSSH2_FXF_WRITE,
+                LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC,
                 0);
         if (!this->sftp_openfile_handle) {
             throw runtime_error("libssh2_sftp_open failed");
@@ -288,7 +334,7 @@ public:
                     nread -= rc;
                 }
             } else {
-                // TODO error handling for fread.
+                // TODO(allan): error handling for fread.
                 break;
             }
         }
@@ -373,26 +419,27 @@ class DvlcDirList : public DirListCtrl {
     wxDataViewListCtrl *dvlc;
 
 public:
-    DvlcDirList(wxWindow *parent) : DirListCtrl() {
+    explicit DvlcDirList(wxWindow *parent) : DirListCtrl() {
         this->dvlc = new wxDataViewListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                             wxDV_MULTIPLE | wxDV_ROW_LINES);
-        // TODO wxDATAVIEW_CELL_EDITABLE?
+        // TODO(allan): wxDATAVIEW_CELL_EDITABLE?
         this->dvlc->AppendIconTextColumn("Name", wxDATAVIEW_CELL_INERT, 300);
         this->dvlc->AppendTextColumn("Size", wxDATAVIEW_CELL_INERT, 100);
-        this->dvlc->AppendTextColumn("Modified", wxDATAVIEW_CELL_INERT, 100);
+        this->dvlc->AppendTextColumn("Modified", wxDATAVIEW_CELL_INERT, 150);
         this->dvlc->AppendTextColumn("Permissions", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc->AppendTextColumn("Owner", wxDATAVIEW_CELL_INERT, 100);
+        this->dvlc->AppendTextColumn("Group", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc->wxDataViewListCtrl::Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, &DvlcDirList::onItemActivated, this);
         this->dvlc->SetFocus();
     }
 
-    void onItemActivated(wxDataViewEvent &event) {
+    void onItemActivated(const wxDataViewEvent &event) {
         int i = this->dvlc->GetItemData(event.GetItem());
         this->onItemActivatedCb(i);
     }
 
     void Refresh(vector<DirEntry> entries) {
-        // TODO make into a field. Or actually make the individual icons into fields
+        // TODO(allan): make into a field. Or actually make the individual icons into fields
         auto ap = wxArtProvider();
         auto size = wxSize(16, 16);
 
@@ -404,12 +451,17 @@ public:
             wxVector<wxVariant> data;
             data.push_back(wxVariant(wxDataViewIconText(entries[i].name, icon)));
             data.push_back(wxVariant(to_string(entries[i].size)));
-            data.push_back(wxVariant(to_string(entries[i].modified)));
-            data.push_back(wxVariant(to_string(entries[i].permissions)));
+            data.push_back(wxVariant(entries[i].modifiedFormatted()));
+            data.push_back(wxVariant(entries[i].mode_str));
             data.push_back(wxVariant(entries[i].owner));
+            data.push_back(wxVariant(entries[i].group));
             this->dvlc->AppendItem(data, i);
         }
-    };
+
+        // TODO(allan): remove this test
+//        this->dvlc->SelectRow(4);
+//        this->dvlc->SetCurrentItem(this->dvlc->RowToItem(6));
+    }
 
     wxControl *GetCtrl() {
         return this->dvlc;
@@ -417,20 +469,33 @@ public:
 };
 
 
+int wxCALLBACK
+MyCompareFunction(wxIntPtr item1, wxIntPtr item2, wxIntPtr WXUNUSED(sortData))
+{
+    if (item1 < item2)
+        return 1;
+    if (item1 > item2)
+        return -1;
+
+    return 0;
+}
+
+
 class LcDirList : public DirListCtrl {
     wxListCtrl *list_ctrl;
 
 public:
-    LcDirList(wxWindow *parent) : DirListCtrl() {
+    explicit LcDirList(wxWindow *parent) : DirListCtrl() {
         this->list_ctrl = new wxListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT);
 
         this->list_ctrl->AssignImageList(this->iconsImageList, wxIMAGE_LIST_SMALL);
 
         this->list_ctrl->InsertColumn(0, "Name", wxLIST_FORMAT_LEFT, 300);
         this->list_ctrl->InsertColumn(1, "Size", wxLIST_FORMAT_LEFT, 100);
-        this->list_ctrl->InsertColumn(2, "Modified", wxLIST_FORMAT_LEFT, 100);
+        this->list_ctrl->InsertColumn(2, "Modified", wxLIST_FORMAT_LEFT, 150);
         this->list_ctrl->InsertColumn(3, "Permissions", wxLIST_FORMAT_LEFT, 100);
         this->list_ctrl->InsertColumn(4, "Owner", wxLIST_FORMAT_LEFT, 100);
+        this->list_ctrl->InsertColumn(5, "Owner", wxLIST_FORMAT_LEFT, 100);
 
         this->list_ctrl->wxListCtrl::Bind(wxEVT_LIST_ITEM_ACTIVATED, &LcDirList::onItemActivated, this);
 
@@ -449,20 +514,26 @@ public:
             this->list_ctrl->SetItemData(i, i);
             this->list_ctrl->SetItem(i, 0, entries[i].name);
             this->list_ctrl->SetItem(i, 1, to_string(entries[i].size));
-            this->list_ctrl->SetItem(i, 2, to_string(entries[i].modified));
-            this->list_ctrl->SetItem(i, 3, to_string(entries[i].permissions));
+            this->list_ctrl->SetItem(i, 2, entries[i].modifiedFormatted());
+            this->list_ctrl->SetItem(i, 3, entries[i].mode_str);
             this->list_ctrl->SetItem(i, 4, entries[i].owner);
+            this->list_ctrl->SetItem(i, 5, entries[i].group);
         }
-    };
 
-    void onItemActivated(wxListEvent &event) {
+        // TODO(allan): remove this test
+//        this->list_ctrl->SetItemState(4, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
+
+        //this->list_ctrl->SortItems(MyCompareFunction, 0);
+    }
+
+    void onItemActivated(const wxListEvent &event) {
         int i = this->list_ctrl->GetItemData(event.GetItem());
         this->onItemActivatedCb(i);
     }
 };
 
 string normalize_path(string path) {
-    // TODO support UTF-8 paths...
+    // TODO(allan): support UTF-8 paths...
     replace(path.begin(), path.end(), '\\', '/');
 
     stringstream s(path);
@@ -522,18 +593,18 @@ public:
         this->SetSizerAndFit(sizer);
     }
 
-    void onPreferenceChanged(wxCommandEvent &event) {
+    void onPreferenceChanged(const wxCommandEvent &event) {
         if (wxPreferencesEditor::ShouldApplyChangesImmediately()) {
             this->TransferDataFromWindow();
         }
     }
 
-    virtual bool TransferDataToWindow() wxOVERRIDE {
+    virtual bool TransferDataToWindow() {
         this->text_editor->SetValue(this->config->Read("/editor", ""));
         return true;
     }
 
-    virtual bool TransferDataFromWindow() wxOVERRIDE {
+    virtual bool TransferDataFromWindow() {
         this->config->Write("/editor", this->text_editor->GetValue());
         this->config->Flush();
         return true;
@@ -544,7 +615,7 @@ class PreferencesPageGeneral : public wxStockPreferencesPage {
     wxConfigBase *config;
 
 public:
-    PreferencesPageGeneral(wxConfigBase *config) : wxStockPreferencesPage(Kind_General) {
+    explicit PreferencesPageGeneral(wxConfigBase *config) : wxStockPreferencesPage(Kind_General) {
         this->config = config;
     }
 
@@ -558,7 +629,7 @@ class OpenedFile {
 public:
     string local_path;
     string remote_path;
-    filesystem::file_time_type modified;
+    file_time_type modified;
 };
 
 class SftpguiFrame : public wxFrame {
@@ -610,14 +681,19 @@ public:
 
         wxPanel *mainPane = new wxPanel(this);
 
+        wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
+        wxBoxSizer *sizer_inner_top = new wxBoxSizer(wxHORIZONTAL);
+
         this->path_text_ctrl = new wxTextCtrl(
                 mainPane,
                 wxID_ANY,
                 this->current_dir,
                 wxDefaultPosition,
                 wxDefaultSize,
-                wxTE_PROCESS_ENTER | wxBORDER_NONE);
-        this->path_text_ctrl->Bind(wxEVT_TEXT_ENTER, &SftpguiFrame::onPathTextEnter, this);
+                wxTE_PROCESS_ENTER); // | wxBORDER_NONE
+        //this->path_text_ctrl->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
+        this->Bind(wxEVT_TEXT_ENTER, &SftpguiFrame::onPathTextEnter, this);
+        sizer_inner_top->Add(this->path_text_ctrl, 1, wxEXPAND | wxALL, 4);
 
 #ifdef __APPLE__
         // On MacOS wxDataViewListCtrl looks best.
@@ -625,94 +701,57 @@ public:
 #else
         // On GTK and Windows wxListCtrl looks best.
         this->dir_list_ctrl = new LcDirList(mainPane);
+//        this->dir_list_ctrl = new DvlcDirList(mainPane);
 #endif
 
-        // TODO exception handling in this lambda...
+        // TODO(allan): exception handling in this lambda...
         this->dir_list_ctrl->BindOnItemActivated([&](int n) {
             string status = "";
             try {
                 auto entry = this->current_dir_list[n];
                 if (entry.isDir) {
-                    this->current_dir += "/" + entry.name;
-                    this->current_dir = normalize_path(this->current_dir);
+                    this->current_dir = normalize_path(this->current_dir + "/" + entry.name);
                     this->path_text_ctrl->SetValue(this->current_dir);
                     this->refreshDir();
-                    status = "Fetched dir at " + wxDateTime::Now().FormatISOCombined() + ".";
                 } else {
-                    string editor = string(this->config->Read("/editor", ""));
-                    if (editor.empty()) {
-                        string msg = "No text editor configured. Set one in Preferences.";
-                        wxMessageBox(msg, "Notice", wxOK | wxICON_INFORMATION, this);
-                        return;
-                    }
-
-                    string remote_path = normalize_path(this->current_dir + "/" + entry.name);
-                    string local_tmp = string(wxStandardPaths::Get().GetTempDir());
-                    string local_dir = normalize_path(local_tmp + "/sftpgui/" + this->current_dir);
-                    string local_path = normalize_path(local_dir + "/" + entry.name);
-
-                    // TODO restrict permissions
-                    filesystem::create_directories(local_dir);
-
-                    this->sftp_connection->downloadFile(remote_path, local_path);
-
-                    bool previously_downloaded = false;
-                    for (int i = 0; i < this->opened_files_local.size(); ++i) {
-                        if (this->opened_files_local[i].remote_path == remote_path) {
-                            this->opened_files_local[i].modified = filesystem::last_write_time(local_path);
-                            previously_downloaded = true;
-                            break;
-                        }
-                    }
-                    if (!previously_downloaded) {
-                        OpenedFile f;
-                        f.local_path = local_path;
-                        f.remote_path = remote_path;
-                        f.modified = filesystem::last_write_time(local_path);
-                        this->opened_files_local.push_back(f);
-                    }
-
-                    status = "Downloaded " + remote_path + " at " + wxDateTime::Now().FormatISOCombined() + ".";
-
-                    wxExecute(editor + " " + local_path, wxEXEC_ASYNC);
+                    this->downloadFile(entry.name);
                 }
             } catch (...) {
                 showException();
             }
-            this->setIdleStatusText();
         });
 
-        wxBoxSizer *sizer_top = new wxBoxSizer(wxHORIZONTAL);
-        sizer_top->Add(this->path_text_ctrl, 1, wxEXPAND | wxALL, 2);
-
-        wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
-        sizer->Add(sizer_top, 0, wxEXPAND | wxALL, 1);
+        sizer->Add(sizer_inner_top, 0, wxEXPAND | wxALL, 1);
         sizer->Add(this->dir_list_ctrl->GetCtrl(), 1, wxEXPAND | wxALL, 0);
         mainPane->SetSizer(sizer);
 
-        this->refreshDir();
+        wxAcceleratorTable accel(0, 0);
+        accel.Add(wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', 100));
+        this->Bind(wxEVT_MENU, &SftpguiFrame::onCtrlL, this, 100);
+        accel.Add(wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, 200));
+        this->Bind(wxEVT_MENU, &SftpguiFrame::onF5, this, 200);
+        this->SetAcceleratorTable(accel);
 
-        this->setIdleStatusText();
+        this->refreshDir();
     }
 
     ~SftpguiFrame() {
         for (int i = 0; i < this->opened_files_local.size(); ++i) {
-            filesystem::remove(this->opened_files_local[i].local_path);
+            remove(this->opened_files_local[i].local_path);
         }
 
         // Save frame position.
         int x, y, w, h;
         GetClientSize(&w, &h);
         GetPosition(&x, &y);
-        this->config->Write("/window_x", (long) x);
-        this->config->Write("/window_y", (long) y);
-        this->config->Write("/window_w", (long) w);
-        this->config->Write("/window_h", (long) h);
+        this->config->Write("/window_x", x);
+        this->config->Write("/window_y", y);
+        this->config->Write("/window_w", w);
+        this->config->Write("/window_h", h);
         this->config->Flush();
     }
 
 private:
-
     void setIdleStatusText(string additional = "") {
         string s = "Ready";
         if (!additional.empty()) {
@@ -721,36 +760,91 @@ private:
         this->SetStatusText(s);
     }
 
-    void onFileWatcherTimer(wxTimerEvent &event) {
+    void onFileWatcherTimer(const wxTimerEvent &event) {
+        string last_upload = "";
         for (int i = 0; i < this->opened_files_local.size(); ++i) {
             OpenedFile f = this->opened_files_local[i];
-            if (filesystem::last_write_time(f.local_path) > f.modified) {
+            if (last_write_time(f.local_path) > f.modified) {
                 this->sftp_connection->uploadFile(f.local_path, f.remote_path);
-                this->opened_files_local[i].modified = filesystem::last_write_time(f.local_path);
-
-                this->setIdleStatusText(
-                        string("Uploaded " + f.remote_path + " at " + wxDateTime::Now().FormatISOCombined() + "."));
+                this->opened_files_local[i].modified = last_write_time(f.local_path);
+                last_upload = f.remote_path;
             }
+        }
+
+        if (!last_upload.empty()) {
+            this->refreshDir();
+            string d = string(wxDateTime::Now().FormatISOCombined());
+            this->setIdleStatusText("Uploaded " + last_upload + " at " + d + ".");
         }
     }
 
-    void onPathTextEnter(wxCommandEvent &event) {
+    void onPathTextEnter(const wxCommandEvent &event) {
         this->current_dir = this->path_text_ctrl->GetValue();
+        this->refreshDir();
+    }
+
+    void onCtrlL(const wxCommandEvent &event) {
+        this->path_text_ctrl->SetFocus();
+        this->path_text_ctrl->SelectAll();
+    }
+
+    void onF5(const wxCommandEvent &event) {
         this->refreshDir();
     }
 
     void refreshDir() {
         this->current_dir_list = this->sftp_connection->getDir(this->current_dir);
         this->dir_list_ctrl->Refresh(this->current_dir_list);
+        this->setIdleStatusText(string("Fetched dir at " + wxDateTime::Now().FormatISOCombined() + "."));
     }
 
-    void onPreferencesMenuItem(wxCommandEvent &event) {
+    void downloadFile(string name) {
+        string editor = string(this->config->Read("/editor", ""));
+        if (editor.empty()) {
+            string msg = "No text editor configured. Set one in Preferences.";
+            wxMessageBox(msg, "Notice", wxOK | wxICON_INFORMATION, this);
+            return;
+        }
+
+        string remote_path = normalize_path(this->current_dir + "/" + name);
+        string local_tmp = string(wxStandardPaths::Get().GetTempDir());
+        string local_dir = normalize_path(local_tmp + "/sftpgui/" + this->current_dir);
+        string local_path = normalize_path(local_dir + "/" + name);
+
+        // TODO(allan): restrict permissions
+        create_directories(local_dir);
+
+        this->sftp_connection->downloadFile(remote_path, local_path);
+
+        bool previously_downloaded = false;
+        for (int i = 0; i < this->opened_files_local.size(); ++i) {
+            if (this->opened_files_local[i].remote_path == remote_path) {
+                this->opened_files_local[i].modified = last_write_time(local_path);
+                previously_downloaded = true;
+                break;
+            }
+        }
+        if (!previously_downloaded) {
+            OpenedFile f;
+            f.local_path = local_path;
+            f.remote_path = remote_path;
+            f.modified = last_write_time(local_path);
+            this->opened_files_local.push_back(f);
+        }
+
+        string d = string(wxDateTime::Now().FormatISOCombined());
+        this->setIdleStatusText("Downloaded " + remote_path + " at " + d + ".");
+
+        wxExecute(editor + " " + local_path, wxEXEC_ASYNC);
+    }
+
+    void onPreferencesMenuItem(const wxCommandEvent &event) {
         auto prefs_editor = new wxPreferencesEditor();
         prefs_editor->AddPage(new PreferencesPageGeneral(this->config));
         prefs_editor->Show(this);
     }
 
-    void onQuitMenuItem(wxCommandEvent &event) {
+    void onQuitMenuItem(const wxCommandEvent &event) {
         Close(true);
     }
 };
@@ -762,20 +856,19 @@ class SftpguiApp : public wxApp {
     int port = 22;
 
 public:
-
     bool OnInit() {
         try {
             if (!wxApp::OnInit())
                 return false;
 
-            // TODO Better control the config path. ".config/sftpgui"
+            // TODO(allan): Better control the config path. ".config/sftpgui"
             auto es = wxEmptyString;
             wxFileConfig *config = new wxFileConfig("sftpgui", es, es, es, wxCONFIG_USE_LOCAL_FILE);
             config->EnableAutoSave();
             config->SetRecordDefaults();
             wxConfigBase::Set(config);
 
-            // TODO put in separate thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
+            // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
             auto sftpConnection = make_unique<SftpConnection>(username, host, port);
 
             wxFrame *m_frame = new SftpguiFrame(move(sftpConnection), config);
@@ -788,14 +881,14 @@ public:
         return true;
     }
 
-    void OnInitCmdLine(wxCmdLineParser &parser) {
+    virtual void OnInitCmdLine(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
         parser.SetSwitchChars(wxT("-"));
         parser.AddParam("[user@]host");
         parser.AddSwitch("h", "help", "displays help", wxCMD_LINE_OPTION_HELP);
         parser.AddOption("p", "port", "remote SSH server port");
     }
 
-    bool OnCmdLineParsed(wxCmdLineParser &parser) {
+    virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
         this->host = parser.GetParam(0);
 
         this->username = wxGetUserId();
