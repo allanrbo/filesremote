@@ -33,9 +33,12 @@
 #include <wx/fileconf.h>
 #include <wx/preferences.h>
 #include <wx/dataview.h>
+#include <wx/aboutdlg.h>
 
 #include <libssh2.h>
 #include <libssh2_sftp.h>
+
+#include "licensestrings.h"
 
 using std::string;
 using std::to_string;
@@ -50,6 +53,10 @@ using std::filesystem::last_write_time;
 using std::filesystem::remove;
 
 #define BUFLEN 4096
+#define EVT_ACCEL_CTRL_L 10
+#define EVT_ACCEL_F5 20
+#define EVT_ACCEL_ALT_UP 30
+#define EVT_LICENSES_MENU 40
 
 void showException() {
     wxString error;
@@ -77,7 +84,7 @@ public:
     bool isDir;
 
     string modifiedFormatted() {
-        auto t = wxDateTime((time_t)this->modified);
+        auto t = wxDateTime((time_t) this->modified);
         t.MakeUTC();
         return t.FormatISOCombined(' ').ToStdString();
     }
@@ -470,8 +477,7 @@ public:
 
 
 int wxCALLBACK
-MyCompareFunction(wxIntPtr item1, wxIntPtr item2, wxIntPtr WXUNUSED(sortData))
-{
+MyCompareFunction(wxIntPtr item1, wxIntPtr item2, wxIntPtr WXUNUSED(sortData)) {
     if (item1 < item2)
         return 1;
     if (item1 > item2)
@@ -652,9 +658,13 @@ public:
     ) {
         this->sftp_connection = move(sftp_connection);
         this->current_dir = this->sftp_connection->home_dir;
-
         this->config = config;
 
+        this->SetTitle("Sftpgui - " + this->sftp_connection->username + "@" + this->sftp_connection->host +
+                       ":" + to_string(this->sftp_connection->port));
+        this->CreateStatusBar();
+
+        // Restore window size and pos.
         int x = this->config->Read("/window_x", -1);
         int y = this->config->Read("/window_y", -1);
         int w = this->config->Read("/window_w", 800);
@@ -662,47 +672,59 @@ public:
         this->Move(x, y);
         this->SetClientSize(w, h);
 
-        this->SetTitle("Sftpgui - " + this->sftp_connection->username + "@" + this->sftp_connection->host +
-                       " port " + to_string(this->sftp_connection->port));
-
-        this->CreateStatusBar();
-
-        wxMenuBar *menuBar = new wxMenuBar();
-        wxMenu *fileMenu = new wxMenu;
+        // Create menus.
+        auto *menuBar = new wxMenuBar();
+        auto *fileMenu = new wxMenu;
         menuBar->Append(fileMenu, "&File");
         fileMenu->Append(wxID_PREFERENCES);
         this->Bind(wxEVT_MENU, &SftpguiFrame::onPreferencesMenuItem, this, wxID_PREFERENCES);
         fileMenu->Append(wxID_EXIT, "E&xit", "Quit this program");
         this->Bind(wxEVT_MENU, &SftpguiFrame::onQuitMenuItem, this, wxID_EXIT);
+        auto *helpMenu = new wxMenu;
+        menuBar->Append(helpMenu, "&Help");
+        helpMenu->Append(EVT_LICENSES_MENU, "Licenses");
+        this->Bind(wxEVT_MENU, &SftpguiFrame::onLicensesMenuItem, this, EVT_LICENSES_MENU);
+        helpMenu->Append(wxID_ABOUT);
+        this->Bind(wxEVT_MENU, &SftpguiFrame::onAboutMenuItem, this, wxID_ABOUT);
         SetMenuBar(menuBar);
 
+        // Set up shortcut keys.
+        wxAcceleratorEntry entries[]{
+                wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', EVT_ACCEL_CTRL_L),
+                wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, EVT_ACCEL_F5),
+                wxAcceleratorEntry(wxACCEL_ALT, WXK_UP, EVT_ACCEL_ALT_UP),
+        };
+        wxAcceleratorTable accel(sizeof(entries), entries);
+        this->SetAcceleratorTable(accel);
+        this->Bind(wxEVT_MENU, &SftpguiFrame::onCtrlL, this, EVT_ACCEL_CTRL_L);
+        this->Bind(wxEVT_MENU, &SftpguiFrame::onF5, this, EVT_ACCEL_F5);
+        this->Bind(wxEVT_MENU, &SftpguiFrame::onAltUp, this, EVT_ACCEL_ALT_UP);
+
+        // Set up a timer that will watch for changes in local files.
         this->file_watcher_timer.Bind(wxEVT_TIMER, &SftpguiFrame::onFileWatcherTimer, this);
         this->file_watcher_timer.Start(1000);
 
-        wxPanel *mainPane = new wxPanel(this);
+        // Main layout.
+        auto *panel = new wxPanel(this);
+        auto *sizer = new wxBoxSizer(wxVERTICAL);
+        auto *sizer_inner_top = new wxBoxSizer(wxHORIZONTAL);
+        sizer->Add(sizer_inner_top, 0, wxEXPAND | wxALL, 1);
 
-        wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
-        wxBoxSizer *sizer_inner_top = new wxBoxSizer(wxHORIZONTAL);
-
-        this->path_text_ctrl = new wxTextCtrl(
-                mainPane,
-                wxID_ANY,
-                this->current_dir,
-                wxDefaultPosition,
-                wxDefaultSize,
-                wxTE_PROCESS_ENTER); // | wxBORDER_NONE
-        //this->path_text_ctrl->SetBackgroundStyle(wxBG_STYLE_TRANSPARENT);
-        this->Bind(wxEVT_TEXT_ENTER, &SftpguiFrame::onPathTextEnter, this);
+        // Create remote path text field.
+        this->path_text_ctrl = new wxTextCtrl(panel, wxID_ANY, this->current_dir, wxDefaultPosition,
+                                              wxDefaultSize, wxTE_PROCESS_ENTER);
         sizer_inner_top->Add(this->path_text_ctrl, 1, wxEXPAND | wxALL, 4);
+        this->Bind(wxEVT_TEXT_ENTER, &SftpguiFrame::onPathTextEnter, this);
 
 #ifdef __APPLE__
         // On MacOS wxDataViewListCtrl looks best.
-        this->dir_list_ctrl = new DvlcDirList(mainPane);
+        this->dir_list_ctrl = new DvlcDirList(panel);
 #else
         // On GTK and Windows wxListCtrl looks best.
-        this->dir_list_ctrl = new LcDirList(mainPane);
+        this->dir_list_ctrl = new LcDirList(panel);
 //        this->dir_list_ctrl = new DvlcDirList(mainPane);
 #endif
+        sizer->Add(this->dir_list_ctrl->GetCtrl(), 1, wxEXPAND | wxALL, 0);
 
         // TODO(allan): exception handling in this lambda...
         this->dir_list_ctrl->BindOnItemActivated([&](int n) {
@@ -721,17 +743,7 @@ public:
             }
         });
 
-        sizer->Add(sizer_inner_top, 0, wxEXPAND | wxALL, 1);
-        sizer->Add(this->dir_list_ctrl->GetCtrl(), 1, wxEXPAND | wxALL, 0);
-        mainPane->SetSizer(sizer);
-
-        wxAcceleratorTable accel(0, 0);
-        accel.Add(wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', 100));
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onCtrlL, this, 100);
-        accel.Add(wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, 200));
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onF5, this, 200);
-        this->SetAcceleratorTable(accel);
-
+        panel->SetSizerAndFit(sizer);
         this->refreshDir();
     }
 
@@ -792,8 +804,69 @@ private:
         this->refreshDir();
     }
 
+    void onAltUp(const wxCommandEvent &event) {
+        this->current_dir = normalize_path(this->current_dir + "/..");
+        this->path_text_ctrl->SetValue(this->current_dir);
+        this->refreshDir();
+    }
+
+    void onLicensesMenuItem(const wxCommandEvent &event) {
+        wxDialog *licenses_frame = new wxDialog(this,
+                                                wxID_ANY,
+                                                "Licenses",
+                                                wxDefaultPosition,
+                                                wxSize(600, 600),
+                                                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+        wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
+        wxTextCtrl *licenses_text_ctrl = new wxTextCtrl(
+                licenses_frame,
+                wxID_ANY,
+                wxString::FromAscii(licenses),
+                wxDefaultPosition,
+                wxDefaultSize,
+                wxTE_MULTILINE | wxTE_READONLY | wxBORDER_NONE);
+        sizer->Add(licenses_text_ctrl, 1, wxEXPAND | wxALL);
+        licenses_frame->SetSizer(sizer);
+        licenses_frame->Show();
+    }
+
+    void onAboutMenuItem(const wxCommandEvent &event) {
+        wxAboutDialogInfo info;
+        info.SetName("Sftpgui");
+        info.SetVersion("0.1");
+        info.SetDescription("A no-nonsense SFTP file browser");
+        info.SetCopyright("(C) 2020 Allan Riordan Boll");
+        wxAboutBox(info, this);
+    }
+
     void refreshDir() {
         this->current_dir_list = this->sftp_connection->getDir(this->current_dir);
+
+        auto cmp = [](const DirEntry &a, const DirEntry &b) {
+            if (a.name == "..") {
+                return true;
+            }
+            if (b.name == "..") {
+                return false;
+            }
+            if (a.isDir && !b.isDir) {
+                return true;
+            }
+            if (!a.isDir && b.isDir) {
+                return false;
+            }
+            if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] == '.' && b.name[0] != '.') {
+                return true;
+            }
+            if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] != '.' && b.name[0] == '.') {
+                return false;
+            }
+
+            return a.name > b.name;
+        };
+        sort(this->current_dir_list.begin(), this->current_dir_list.end(), cmp);
+
+
         this->dir_list_ctrl->Refresh(this->current_dir_list);
         this->setIdleStatusText(string("Fetched dir at " + wxDateTime::Now().FormatISOCombined() + "."));
     }
@@ -850,6 +923,91 @@ private:
 };
 
 
+class HostSelectionDialog : public wxDialog {
+    wxConfigBase *config;
+    wxTextCtrl *host;
+    wxTextCtrl *user;
+
+
+public:
+    HostSelectionDialog(wxConfigBase *config) : wxDialog(NULL, -1, "Sftpgui") {
+        this->config = config;
+
+        this->Bind(wxEVT_CLOSE_WINDOW, &HostSelectionDialog::OnClose, this);
+
+        // Main layout.
+        auto *panel = new wxPanel(this);
+        auto *sizer = new wxBoxSizer(wxVERTICAL);
+
+//        auto *sizer_buttons = this->CreateButtonSizer(wxOK);
+//        sizer->Add(sizer_buttons, 0, wxALIGN_RIGHT);
+
+        auto *sizer_buttons = new wxBoxSizer(wxTB_HORIZONTAL);
+        sizer->Add(sizer_buttons, 0, wxALIGN_RIGHT);
+        auto *button_connect = new wxButton(this, wxID_OK, "Connect"); // , wxDefaultPosition, wxSize(70, 30)
+        sizer_buttons->Add(button_connect, 0, wxRIGHT, 10);
+        button_connect->SetDefault();
+
+
+
+        this->SetSizer(sizer);
+
+
+//        auto *sizer_buttons = this->CreateButtonSizer(0);
+
+
+//        auto *sizer_host = new wxBoxSizer(wxHORIZONTAL);
+//        auto *label_host = new wxStaticText(this, wxID_ANY, "Host:");
+//        sizer_host->Add(label_host, 0, wxALL | wxALIGN_CENTER_VERTICAL);
+//        sizer_host->Add(0, 0, 1, wxALL);
+//        this->host = new wxTextCtrl(this,
+//                                    wxID_ANY); // , wxEmptyString, wxDefaultPosition, wxSize(300, -1), wxTE_PROCESS_ENTER
+//        sizer_host->Add(this->host, 0, wxALL | wxALIGN_CENTER_VERTICAL);
+//        vbox->Add(sizer_host, 0, wxGROW | wxALL, 2);
+//
+//        auto *sizer_user = new wxBoxSizer(wxHORIZONTAL);
+//        auto *label_user = new wxStaticText(this, wxID_ANY, "Username:");
+//        sizer_user->Add(label_user, 0, wxALL | wxALIGN_CENTER_VERTICAL);
+//        sizer_user->Add(0, 0, 1, wxALL);
+//        this->user = new wxTextCtrl(this,
+//                                    wxID_ANY); // , wxEmptyString, wxDefaultPosition, wxSize(300, -1), wxTE_PROCESS_ENTER
+//        sizer_user->Add(this->user, 0, wxALL | wxALIGN_CENTER_VERTICAL);
+//        vbox->Add(sizer_user, 0, wxGROW | wxALL, 2);
+//
+//        auto *sizer_buttons = this->CreateButtonSizer(0);
+//        wxButton *okButton = new wxButton(this, wxID_OK, "Connect"); // , wxDefaultPosition, wxSize(70, 30)
+//        okButton->SetDefault();
+//        sizer_buttons->Add(okButton, 1);
+//        wxButton *closeButton = new wxButton(this, wxID_CANCEL, "Close", wxDefaultPosition, wxSize(70, 30));
+//        this->Bind(wxEVT_BUTTON, &HostSelectionDialog::OnCancel, this, wxID_CANCEL);
+//        sizer_buttons->Add(closeButton, 1, wxLEFT, 2);
+//
+//        vbox->Add(panel, 1, wxTOP | wxLEFT | wxRIGHT, 10);
+//        vbox->Add(sizer_buttons, 0, wxALIGN_RIGHT | wxALL, 10);
+    }
+
+private:
+    virtual void OnClose(wxCloseEvent &event) {
+        this->Destroy();
+    }
+
+    virtual void OnCancel(wxCommandEvent &event) {
+        this->Close();
+    }
+
+    virtual bool TransferDataFromWindow() {
+        // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
+        auto sftpConnection = make_unique<SftpConnection>(this->user->GetValue().ToStdString(),
+                                                          this->host->GetValue().ToStdString(), 22);
+        wxFrame *frame = new SftpguiFrame(move(sftpConnection), config);
+        frame->Show();
+
+        this->Close();
+        return true;
+    }
+};
+
+
 class SftpguiApp : public wxApp {
     string host;
     string username;
@@ -868,11 +1026,17 @@ public:
             config->SetRecordDefaults();
             wxConfigBase::Set(config);
 
-            // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
-            auto sftpConnection = make_unique<SftpConnection>(username, host, port);
+            if (!host.empty()) {
+                // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
+                auto sftpConnection = make_unique<SftpConnection>(username, host, port);
 
-            wxFrame *m_frame = new SftpguiFrame(move(sftpConnection), config);
-            m_frame->Show();
+                wxFrame *frame = new SftpguiFrame(move(sftpConnection), config);
+                frame->Show();
+            } else {
+                auto dialog = new HostSelectionDialog(config);
+                dialog->Show();
+            }
+
         } catch (...) {
             showException();
             return false;
@@ -883,13 +1047,15 @@ public:
 
     virtual void OnInitCmdLine(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
         parser.SetSwitchChars(wxT("-"));
-        parser.AddParam("[user@]host");
+        parser.AddParam("[user@]host", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL);
         parser.AddSwitch("h", "help", "displays help", wxCMD_LINE_OPTION_HELP);
         parser.AddOption("p", "port", "remote SSH server port");
     }
 
     virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
-        this->host = parser.GetParam(0);
+        if (parser.GetParamCount() > 0) {
+            this->host = parser.GetParam(0);
+        }
 
         this->username = wxGetUserId();
 #ifdef WIN32
