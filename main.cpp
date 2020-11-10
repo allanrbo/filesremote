@@ -65,7 +65,6 @@ using std::filesystem::remove;
 
 #define BUFLEN 4096
 #define ID_SET_DIR 10
-#define ID_REFRESH 20
 #define ID_PARENT_DIR 30
 #define ID_SHOW_LICENSES 40
 #define ID_OPEN_SELECTED 50
@@ -684,7 +683,7 @@ public:
     }
 
     int GetHighlighted() {
-        if (this->list_ctrl_->GetItemCount() > 0) {
+        if (this->list_ctrl_->GetSelectedItemCount() > 0) {
             auto i = this->list_ctrl_->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_FOCUSED);
             return this->list_ctrl_->GetItemData(i);
         }
@@ -896,6 +895,9 @@ public:
         // MacOS seems to ignores this table when the focus is on wxDataViewListCtrl, so we rely on the accelerators in
         // the menu item titles on MacOS.
         wxAcceleratorEntry entries[]{
+                wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, wxID_REFRESH),
+                wxAcceleratorEntry(wxACCEL_CTRL, 'R', wxID_REFRESH),
+                wxAcceleratorEntry(wxACCEL_CTRL, 'L', ID_SET_DIR),
                 wxAcceleratorEntry(wxACCEL_ALT, WXK_UP, ID_PARENT_DIR),
         };
         wxAcceleratorTable accel(sizeof(entries), entries);
