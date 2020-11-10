@@ -537,10 +537,6 @@ public:
             data.push_back(wxVariant(entries[i].group));
             this->dvlc->AppendItem(data, i);
         }
-
-        // TODO(allan): remove this test
-//        this->dvlc->SelectRow(4);
-//        this->dvlc->SetCurrentItem(this->dvlc->RowToItem(6));
     }
 
     wxControl *GetCtrl() {
@@ -633,19 +629,6 @@ public:
             this->list_ctrl->SetItem(i, 4, entries[i].owner);
             this->list_ctrl->SetItem(i, 5, entries[i].group);
         }
-
-        // TODO(allan): remove this test
-////        this->list_ctrl->SetItemState(4, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
-
-////      this->list_ctrl->SortItems(MyCompareFunction, 0);
-////        int wxCALLBACK MyCompareFunction(wxIntPtr item1, wxIntPtr item2, wxIntPtr WXUNUSED(sortData)) {
-////            if (item1 < item2)
-////                return 1;
-////            if (item1 > item2)
-////                return -1;
-////
-////            return 0;
-////        }
     }
 
     void SetFocus() {
@@ -822,7 +805,6 @@ public:
             this->path_text_ctrl->SelectAll();
         }, ID_SET_DIR);
 
-        file_menu->Append(ID_PARENT_DIR, "Parent directory\tBackspace", wxEmptyString, wxITEM_NORMAL);
 #ifdef __WXOSX__
         file_menu->Append(ID_PARENT_DIR, "Parent directory\tCtrl+Up", wxEmptyString, wxITEM_NORMAL);
 #else
@@ -849,6 +831,8 @@ public:
             prefs_editor->AddPage(new PreferencesPageGeneral(this->config));
             prefs_editor->Show(this);
         }, wxID_PREFERENCES);
+
+        file_menu->AppendSeparator();
 
         file_menu->Append(wxID_EXIT, "E&xit", "Quit this program");
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
@@ -889,8 +873,8 @@ public:
             wxAboutBox(info, this);
         }, wxID_ABOUT);
 
-        // Most keyboard accelerators for menu items are automatically bound via the string in its title. However, the
-        // ones for the Alt-key additionally need to be set up the in SetAcceleratorTable to work on Win and GTK.
+        // Most keyboard accelerators for menu items are automatically bound via the string in its title. However, some
+        // seem to only work via SetAcceleratorTable, so setting them again here.
         // MacOS seems to ignores this table when the focus is on wxDataViewListCtrl, so we rely on the accelerators in
         // the menu item titles on MacOS.
         wxAcceleratorEntry entries[]{
