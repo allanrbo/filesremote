@@ -2,6 +2,8 @@
 
 #include <string>
 #include <vector>
+#include <unordered_set>
+#include <algorithm>
 #include <stdexcept>
 #include <memory>
 #include <filesystem>
@@ -51,6 +53,8 @@ using std::string;
 using std::to_string;
 using std::runtime_error;
 using std::vector;
+using std::unordered_set;
+using std::copy;
 using std::unique_ptr;
 using std::stringstream;
 using std::make_unique;
@@ -321,7 +325,6 @@ public:
                 field_num++;
             }
 
-
             files.push_back(d);
         }
 
@@ -472,6 +475,14 @@ public:
 
     virtual void ActivateCurrent() = 0;
 
+    virtual vector<int> GetSelected() = 0;
+
+    virtual int GetHighlighted() = 0;
+
+    virtual void SetSelected(vector<int>) = 0;
+
+    virtual void SetHighlighted(int) = 0;
+
     void BindOnItemActivated(OnItemActivatedCb cb) {
         this->onItemActivatedCb = cb;
     }
@@ -506,16 +517,12 @@ public:
             this->onItemActivatedCb(i);
         });
 
-        this->dvlc->Bind(wxEVT_DATAVIEW_COLUMN_HEADER_CLICK,  [&](wxDataViewEvent &evt) {
+        this->dvlc->Bind(wxEVT_DATAVIEW_COLUMN_HEADER_CLICK, [&](wxDataViewEvent &evt) {
             this->onColumnHeaderClickCb(evt.GetColumn());
         });
     }
 
     void Refresh(vector<DirEntry> entries) {
-        // TODO(allan): make into a field. Or actually make the individual icons into fields
-        auto ap = wxArtProvider();
-        auto size = wxSize(16, 16);
-
         this->dvlc->DeleteAllItems();
 
         for (int i = 0; i < entries.size(); i++) {
@@ -550,6 +557,36 @@ public:
             this->onItemActivatedCb(i);
         }
     }
+
+    vector<int> GetSelected() {
+        vector<int> r;
+        for (int i = 0; i < this->dvlc->GetItemCount(); ++i) {
+            if (this->dvlc->IsRowSelected(i)) {
+                r.push_back(i);
+            }
+        }
+        return r;
+    }
+
+    void SetSelected(vector<int> selected) {
+        wxDataViewItemArray a;
+        for (int i = 0; i < selected.size(); ++i) {
+            a.push_back(this->dvlc->RowToItem(selected[i]));
+        }
+        this->dvlc->SetSelections(a);
+    }
+
+    int GetHighlighted() {
+        int i = this->dvlc->ItemToRow(this->dvlc->GetCurrentItem());
+        if (i < 0) {
+            return 0;
+        }
+        return i;
+    }
+
+    void SetHighlighted(int row) {
+        this->dvlc->SetCurrentItem(this->dvlc->RowToItem(row));
+    }
 };
 
 
@@ -574,7 +611,7 @@ public:
             this->onItemActivatedCb(i);
         });
 
-        this->list_ctrl->Bind(wxEVT_LIST_COL_CLICK, [&](wxListEvent& evt){
+        this->list_ctrl->Bind(wxEVT_LIST_COL_CLICK, [&](wxListEvent &evt) {
             this->onColumnHeaderClickCb(evt.GetColumn());
         });
     }
@@ -618,9 +655,43 @@ public:
     void ActivateCurrent() {
         if (this->list_ctrl->GetSelectedItemCount() > 0) {
             int i = this->list_ctrl->GetItemData(
-                    this->list_ctrl->GetNextItem(0, wxLIST_NEXT_ALL, wxLIST_STATE_FOCUSED));
+                    this->list_ctrl->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_FOCUSED));
             this->onItemActivatedCb(i);
         }
+    }
+
+
+    void SetSelected(vector<int> selected) {
+        for (int i = 0; i < selected.size(); ++i) {
+            this->list_ctrl->SetItemState(selected[i], wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
+        }
+    }
+
+
+    vector<int> GetSelected() {
+        vector<int> r;
+        long cur = -1;
+        while (1) {
+            cur = this->list_ctrl->GetNextItem(cur, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+            if (cur == -1) {
+                break;
+            }
+
+            r.push_back(cur);
+        }
+        return r;
+    }
+
+    int GetHighlighted() {
+        if (this->list_ctrl->GetItemCount() > 0) {
+            auto i = this->list_ctrl->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_FOCUSED);
+            return this->list_ctrl->GetItemData(i);
+        }
+        return 0;
+    }
+
+    void SetHighlighted(int row) {
+        this->list_ctrl->SetItemState(row, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
     }
 };
 
@@ -651,7 +722,6 @@ public:
 
         this->SetSizerAndFit(sizer);
     }
-
 
     virtual bool TransferDataToWindow() {
         this->text_editor->SetValue(this->config->Read("/editor", ""));
@@ -698,6 +768,8 @@ class SftpguiFrame : public wxFrame {
     int sort_column = 0;
     bool sort_desc = false;
     vector<OpenedFile> opened_files_local;
+    string stored_highlighted = "";
+    unordered_set<string> stored_selected;
 
 public:
     SftpguiFrame(unique_ptr<SftpConnection> sftp_connection, wxConfigBase *config) : wxFrame(
@@ -741,7 +813,7 @@ public:
         file_menu->Append(wxID_REFRESH, "Refresh\tF5");
         file_menu->Append(wxID_REFRESH, "Refresh\tCtrl+R");
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
-            this->refreshDir();
+            this->refreshDir(true);
         }, wxID_REFRESH);
 
         file_menu->Append(ID_SET_DIR, "Change directory\tCtrl+L");
@@ -759,7 +831,7 @@ public:
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
             this->current_dir = normalize_path(this->current_dir + "/..");
             this->path_text_ctrl->SetValue(this->current_dir);
-            this->refreshDir();
+            this->refreshDir(false);
         }, ID_PARENT_DIR);
 
 #ifdef __WXOSX__
@@ -821,7 +893,7 @@ public:
         // ones for the Alt-key additionally need to be set up the in SetAcceleratorTable to work on Win and GTK.
         // MacOS seems to ignores this table when the focus is on wxDataViewListCtrl, so we rely on the accelerators in
         // the menu item titles on MacOS.
-        wxAcceleratorEntry entries[] {
+        wxAcceleratorEntry entries[]{
                 wxAcceleratorEntry(wxACCEL_ALT, WXK_UP, ID_PARENT_DIR),
         };
         wxAcceleratorTable accel(sizeof(entries), entries);
@@ -847,7 +919,7 @@ public:
 #endif
         this->path_text_ctrl->Bind(wxEVT_TEXT_ENTER, [&](wxCommandEvent &event) {
             this->current_dir = this->path_text_ctrl->GetValue();
-            this->refreshDir();
+            this->refreshDir(false);
         });
         this->path_text_ctrl->Bind(wxEVT_CHAR_HOOK, [&](wxKeyEvent &evt) {
             if (evt.GetModifiers() == 0 && evt.GetKeyCode() == WXK_ESCAPE && this->path_text_ctrl->HasFocus()) {
@@ -878,7 +950,7 @@ public:
                 if (entry.isDir) {
                     this->current_dir = normalize_path(this->current_dir + "/" + entry.name);
                     this->path_text_ctrl->SetValue(this->current_dir);
-                    this->refreshDir();
+                    this->refreshDir(false);
                 } else {
                     this->downloadFile(entry.name);
                 }
@@ -895,11 +967,14 @@ public:
                 this->sort_column = col;
             }
 
+            this->rememberSelected();
             this->sortAndPopulateDir();
+            this->recallSelected();
+            this->dir_list_ctrl->SetFocus();
         });
 
         panel->SetSizerAndFit(sizer);
-        this->refreshDir();
+        this->refreshDir(false);
     }
 
     ~SftpguiFrame() {
@@ -939,16 +1014,46 @@ private:
         }
 
         if (!last_upload.empty()) {
-            this->refreshDir();
+            this->refreshDir(true);
             string d = string(wxDateTime::Now().FormatISOCombined());
             this->setIdleStatusText("Uploaded " + last_upload + " at " + d + ".");
         }
     }
 
-    void refreshDir() {
+    void rememberSelected() {
+        this->stored_highlighted = this->current_dir_list[this->dir_list_ctrl->GetHighlighted()].name;
+        this->stored_selected.clear();
+        auto r = this->dir_list_ctrl->GetSelected();
+        for (int i = 0; i < r.size(); ++i) {
+            this->stored_selected.insert(this->current_dir_list[r[i]].name);
+        }
+    }
+
+    void recallSelected() {
+        int highlighted = 0;
+        vector<int> selected;
+        for (int i = 0; i < this->current_dir_list.size(); ++i) {
+            if (this->stored_selected.find(this->current_dir_list[i].name) != this->stored_selected.end()) {
+                selected.push_back(i);
+            }
+            if (this->current_dir_list[i].name == this->stored_highlighted) {
+                highlighted = i;
+            }
+        }
+        this->dir_list_ctrl->SetHighlighted(highlighted);
+        this->dir_list_ctrl->SetSelected(selected);
+    }
+
+    void refreshDir(bool preserve_selection) {
+        if (preserve_selection) {
+            this->rememberSelected();
+        }
         this->current_dir_list = this->sftp_connection->getDir(this->current_dir);
         this->sortAndPopulateDir();
         this->setIdleStatusText(string("Retrieved dir list at " + wxDateTime::Now().FormatISOCombined() + "."));
+        if (preserve_selection) {
+            this->recallSelected();
+        }
     }
 
     void sortAndPopulateDir() {
