@@ -62,6 +62,16 @@ Compiling:
 
     g++ -std=c++17 main.cpp `$HOME/dev/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core | sed "s/-ljpeg//g" | sed "s/-ltiff//g"` -lz /usr/local/lib/libssh2.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libssl.a -o sftpgui
 
+    rm -fr Sftpgui.app
+    mkdir -p Sftpgui.app/Contents/MacOS/
+    mkdir -p Sftpgui.app/Contents/Resources/
+    cp Info.plist Sftpgui.app/Contents/
+    echo APPL???? > Sftpgui.app/Contents/PkgInfo
+    cp sftpgui Sftpgui.app/Contents/MacOS/
+    cp icon/icon.icns Sftpgui.app/Contents/Resources/
+
+    rm -fr Sftpgui.app ; cp -R macos_bundle_template Sftpgui.app ; cp icon/icon.icns Sftpgui.app/Contents/Resources/ cp sftpgui Sftpgui.app/Contents/MacOS/
+
 
 Windows build
 -------------
@@ -112,3 +122,12 @@ Compiling:
     g++ -std=c++17 -mconsole -Wl,--subsystem,console main.cpp resource.o --static `$HOME/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs` -I$HOME/libssh2-1.9.0/include $HOME/libssh2-1.9.0/src/.libs/libssh2.a -lssl -lcrypto -lz -lws2_32 -mconsole -Wl,--subsystem,console -o sftpgui.exe
 
     # TODO use wincng instead of openssl... -lbcrypt -lcrypt32
+
+
+
+TODO
+====
+
+ * Fallback to password if agent fails
+ * Handle permission issue while uploading.
+ * When a file path is pasted to the path bar, open the file directly and go to its directory.

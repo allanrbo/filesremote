@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <sstream>
 
-#ifdef _WIN32
+#ifdef __WXMSW__
 
 #include <winsock2.h>
 
@@ -19,6 +19,13 @@
 #include <netdb.h>
 
 #endif
+
+#ifdef __WXGTK__
+
+#include "icon/icon_48x48.xpm"
+
+#endif
+
 
 #include <stdio.h>
 
@@ -38,7 +45,7 @@
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 
-#include "licensestrings.h"
+#include "./licensestrings.h"
 
 using std::string;
 using std::to_string;
@@ -53,10 +60,12 @@ using std::filesystem::last_write_time;
 using std::filesystem::remove;
 
 #define BUFLEN 4096
-#define EVT_ACCEL_CTRL_L 10
-#define EVT_ACCEL_F5 20
-#define EVT_ACCEL_ALT_UP 30
-#define EVT_LICENSES_MENU 40
+#define ID_SET_DIR 10
+#define ID_REFRESH 20
+#define ID_PARENT_DIR 30
+#define ID_SHOW_LICENSES 40
+#define ID_OPEN_SELECTED 50
+
 
 void showException() {
     wxString error;
@@ -69,6 +78,45 @@ void showException() {
     }
 
     wxLogError("%s", error);
+}
+
+
+string normalize_path(string path) {
+    // TODO(allan): support UTF-8 paths...
+    replace(path.begin(), path.end(), '\\', '/');
+
+    stringstream s(path);
+    string segment;
+    vector<string> parts;
+    while (getline(s, segment, '/')) {
+        if (segment.empty() || segment == ".") {
+            continue;
+        } else if (segment == "..") {
+            if (!parts.empty()) {
+                parts.pop_back();
+            } else {
+                continue;
+            }
+        } else {
+            parts.push_back(segment);
+        }
+    }
+
+    string r = "";
+    for (int i = 0; i < parts.size(); ++i) {
+        if (i == 0 && parts[0].length() == 2 && parts[0][1] == ':') {
+            // Windows drive letter part.
+        } else {
+            r += "/";
+        }
+        r += parts[i];
+    }
+
+    if (r.empty()) {
+        return "/";
+    }
+
+    return r;
 }
 
 
@@ -111,7 +159,7 @@ public:
 
         int rc;
 
-#ifdef WIN32
+#ifdef __WXMSW__
         WSADATA wsadata;
         rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
         if (rc != 0) {
@@ -229,7 +277,7 @@ public:
             auto d = DirEntry();
 
             d.name = string(name);
-            if (d.name == ".") {
+            if (d.name == "." || d.name == "..") {
                 continue;
             }
 
@@ -242,15 +290,9 @@ public:
             if (attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) {
                 d.mode = attrs.permissions;
                 d.isDir = attrs.permissions & S_IFDIR;
-
-                // TODO(allan): is line always guaranteed to have the mode string?
-                char mode_c_str[11];
-                memcpy(mode_c_str, line, 10);
-                mode_c_str[10] = '\0';
-                d.mode_str = string(mode_c_str);
             }
 
-            // Extract user and group from the free text line.
+            // Extract user, group and mode string from the free text line.
             stringstream s(line);
             string segment;
             vector<string> parts;
@@ -258,6 +300,14 @@ public:
             while (getline(s, segment, ' ')) {
                 if (segment.empty()) {
                     continue;
+                }
+
+                if (field_num == 0) {
+                    if (segment.length() != 10) {
+                        // Free text line was in an unexpected format.
+                        break;
+                    }
+                    d.mode_str = string(segment);
                 }
 
                 if (field_num == 2) {
@@ -375,7 +425,7 @@ public:
         }
 
         if (this->sock) {
-#ifdef WIN32
+#ifdef __WXMSW__
             closesocket(this->sock);
 #else
             close(this->sock);
@@ -416,6 +466,10 @@ public:
 
     virtual wxControl *GetCtrl() = 0;
 
+    virtual void SetFocus() = 0;
+
+    virtual void ActivateCurrent() = 0;
+
     void BindOnItemActivated(OnItemActivatedCb cb) {
         this->onItemActivatedCb = cb;
     }
@@ -429,6 +483,7 @@ public:
     explicit DvlcDirList(wxWindow *parent) : DirListCtrl() {
         this->dvlc = new wxDataViewListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                             wxDV_MULTIPLE | wxDV_ROW_LINES);
+
         // TODO(allan): wxDATAVIEW_CELL_EDITABLE?
         this->dvlc->AppendIconTextColumn("Name", wxDATAVIEW_CELL_INERT, 300);
         this->dvlc->AppendTextColumn("Size", wxDATAVIEW_CELL_INERT, 100);
@@ -436,13 +491,10 @@ public:
         this->dvlc->AppendTextColumn("Permissions", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc->AppendTextColumn("Owner", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc->AppendTextColumn("Group", wxDATAVIEW_CELL_INERT, 100);
-        this->dvlc->wxDataViewListCtrl::Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, &DvlcDirList::onItemActivated, this);
-        this->dvlc->SetFocus();
-    }
-
-    void onItemActivated(const wxDataViewEvent &event) {
-        int i = this->dvlc->GetItemData(event.GetItem());
-        this->onItemActivatedCb(i);
+        this->dvlc->wxDataViewListCtrl::Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, [&](wxDataViewEvent &evt) {
+            int i = this->dvlc->GetItemData(evt.GetItem());
+            this->onItemActivatedCb(i);
+        });
     }
 
     void Refresh(vector<DirEntry> entries) {
@@ -473,18 +525,18 @@ public:
     wxControl *GetCtrl() {
         return this->dvlc;
     }
+
+    void SetFocus() {
+        this->dvlc->SetFocus();
+    }
+
+    void ActivateCurrent() {
+        if (this->dvlc->GetCurrentItem()) {
+            int i = this->dvlc->GetItemData(this->dvlc->GetCurrentItem());
+            this->onItemActivatedCb(i);
+        }
+    }
 };
-
-
-int wxCALLBACK
-MyCompareFunction(wxIntPtr item1, wxIntPtr item2, wxIntPtr WXUNUSED(sortData)) {
-    if (item1 < item2)
-        return 1;
-    if (item1 > item2)
-        return -1;
-
-    return 0;
-}
 
 
 class LcDirList : public DirListCtrl {
@@ -503,9 +555,10 @@ public:
         this->list_ctrl->InsertColumn(4, "Owner", wxLIST_FORMAT_LEFT, 100);
         this->list_ctrl->InsertColumn(5, "Owner", wxLIST_FORMAT_LEFT, 100);
 
-        this->list_ctrl->wxListCtrl::Bind(wxEVT_LIST_ITEM_ACTIVATED, &LcDirList::onItemActivated, this);
-
-        this->list_ctrl->SetFocus();
+        this->list_ctrl->wxListCtrl::Bind(wxEVT_LIST_ITEM_ACTIVATED, [&](wxListEvent &event) {
+            int i = this->list_ctrl->GetItemData(event.GetItem());
+            this->onItemActivatedCb(i);
+        });
     }
 
     wxControl *GetCtrl() {
@@ -527,54 +580,32 @@ public:
         }
 
         // TODO(allan): remove this test
-//        this->list_ctrl->SetItemState(4, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
+////        this->list_ctrl->SetItemState(4, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
 
-        //this->list_ctrl->SortItems(MyCompareFunction, 0);
+////      this->list_ctrl->SortItems(MyCompareFunction, 0);
+////        int wxCALLBACK MyCompareFunction(wxIntPtr item1, wxIntPtr item2, wxIntPtr WXUNUSED(sortData)) {
+////            if (item1 < item2)
+////                return 1;
+////            if (item1 > item2)
+////                return -1;
+////
+////            return 0;
+////        }
     }
 
-    void onItemActivated(const wxListEvent &event) {
-        int i = this->list_ctrl->GetItemData(event.GetItem());
-        this->onItemActivatedCb(i);
+    void SetFocus() {
+        this->list_ctrl->SetFocus();
+    }
+
+    void ActivateCurrent() {
+        if (this->list_ctrl->GetSelectedItemCount() > 0) {
+            int i = this->list_ctrl->GetItemData(
+                    this->list_ctrl->GetNextItem(0, wxLIST_NEXT_ALL, wxLIST_STATE_FOCUSED));
+            this->onItemActivatedCb(i);
+        }
     }
 };
 
-string normalize_path(string path) {
-    // TODO(allan): support UTF-8 paths...
-    replace(path.begin(), path.end(), '\\', '/');
-
-    stringstream s(path);
-    string segment;
-    vector<string> parts;
-    while (getline(s, segment, '/')) {
-        if (segment.empty() || segment == ".") {
-            continue;
-        } else if (segment == "..") {
-            if (!parts.empty()) {
-                parts.pop_back();
-            } else {
-                continue;
-            }
-        } else {
-            parts.push_back(segment);
-        }
-    }
-
-    string r = "";
-    for (int i = 0; i < parts.size(); ++i) {
-        if (i == 0 && parts[0].length() == 2 && parts[0][1] == ':') {
-            // Windows drive letter part.
-        } else {
-            r += "/";
-        }
-        r += parts[i];
-    }
-
-    if (r.empty()) {
-        return "/";
-    }
-
-    return r;
-}
 
 class PreferencesPageGeneralPanel : public wxPanel {
     wxConfigBase *config;
@@ -591,7 +622,11 @@ public:
         item_sizer_editor->Add(label_editor, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
         item_sizer_editor->Add(5, 5, 1, wxALL, 0);
         this->text_editor = new wxTextCtrl(this, 100, wxEmptyString, wxDefaultPosition, wxSize(300, -1));
-        this->Bind(wxEVT_TEXT, &PreferencesPageGeneralPanel::onPreferenceChanged, this);
+        this->Bind(wxEVT_TEXT, [&](wxCommandEvent &) {
+            if (wxPreferencesEditor::ShouldApplyChangesImmediately()) {
+                this->TransferDataFromWindow();
+            }
+        });
         item_sizer_editor->Add(this->text_editor, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
 
         sizer->Add(item_sizer_editor, 0, wxGROW | wxALL, 5);
@@ -599,11 +634,6 @@ public:
         this->SetSizerAndFit(sizer);
     }
 
-    void onPreferenceChanged(const wxCommandEvent &event) {
-        if (wxPreferencesEditor::ShouldApplyChangesImmediately()) {
-            this->TransferDataFromWindow();
-        }
-    }
 
     virtual bool TransferDataToWindow() {
         this->text_editor->SetValue(this->config->Read("/editor", ""));
@@ -638,6 +668,7 @@ public:
     file_time_type modified;
 };
 
+
 class SftpguiFrame : public wxFrame {
     unique_ptr<SftpConnection> sftp_connection;
     wxConfigBase *config;
@@ -660,6 +691,12 @@ public:
         this->current_dir = this->sftp_connection->home_dir;
         this->config = config;
 
+#ifdef __WXMSW__
+        this->SetIcon(wxIcon("aaaa"));
+#elif __WXGTK__
+        this->SetIcon(wxIcon(icon_48x48));
+#endif
+
         this->SetTitle("Sftpgui - " + this->sftp_connection->username + "@" + this->sftp_connection->host +
                        ":" + to_string(this->sftp_connection->port));
         this->CreateStatusBar();
@@ -674,31 +711,101 @@ public:
 
         // Create menus.
         auto *menuBar = new wxMenuBar();
-        auto *fileMenu = new wxMenu;
-        menuBar->Append(fileMenu, "&File");
-        fileMenu->Append(wxID_PREFERENCES);
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onPreferencesMenuItem, this, wxID_PREFERENCES);
-        fileMenu->Append(wxID_EXIT, "E&xit", "Quit this program");
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onQuitMenuItem, this, wxID_EXIT);
-        auto *helpMenu = new wxMenu;
-        menuBar->Append(helpMenu, "&Help");
-        helpMenu->Append(EVT_LICENSES_MENU, "Licenses");
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onLicensesMenuItem, this, EVT_LICENSES_MENU);
-        helpMenu->Append(wxID_ABOUT);
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onAboutMenuItem, this, wxID_ABOUT);
-        SetMenuBar(menuBar);
+        this->SetMenuBar(menuBar);
 
-        // Set up shortcut keys.
-        wxAcceleratorEntry entries[]{
-                wxAcceleratorEntry(wxACCEL_CTRL, (int) 'L', EVT_ACCEL_CTRL_L),
-                wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, EVT_ACCEL_F5),
-                wxAcceleratorEntry(wxACCEL_ALT, WXK_UP, EVT_ACCEL_ALT_UP),
+        auto *file_menu = new wxMenu();
+        menuBar->Append(file_menu, "&File");
+
+        // Adding refresh to the menu twice with two different hotkeys, instead of using SetAcceleratorTable.
+        // It's wonky, but MacOS has trouble with non-menu accelerators when the wxDataViewListCtrl has focus.
+        file_menu->Append(wxID_REFRESH, "Refresh\tF5");
+        file_menu->Append(wxID_REFRESH, "Refresh\tCtrl+R");
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            this->refreshDir();
+        }, wxID_REFRESH);
+
+        file_menu->Append(ID_SET_DIR, "Change directory\tCtrl+L");
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &) {
+            this->path_text_ctrl->SetFocus();
+            this->path_text_ctrl->SelectAll();
+        }, ID_SET_DIR);
+
+        file_menu->Append(ID_PARENT_DIR, "Parent directory\tBackspace", wxEmptyString, wxITEM_NORMAL);
+#ifdef __WXOSX__
+        file_menu->Append(ID_PARENT_DIR, "Parent directory\tCtrl+Up", wxEmptyString, wxITEM_NORMAL);
+#else
+        file_menu->Append(ID_PARENT_DIR, "Parent directory\tAlt+Up", wxEmptyString, wxITEM_NORMAL);
+#endif
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            this->current_dir = normalize_path(this->current_dir + "/..");
+            this->path_text_ctrl->SetValue(this->current_dir);
+            this->refreshDir();
+        }, ID_PARENT_DIR);
+
+#ifdef __WXOSX__
+        file_menu->Append(ID_OPEN_SELECTED, "Open selected item\tCtrl+Down", wxEmptyString, wxITEM_NORMAL);
+#endif
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            this->dir_list_ctrl->ActivateCurrent();
+        }, ID_OPEN_SELECTED);
+
+        file_menu->AppendSeparator();
+
+        file_menu->Append(wxID_PREFERENCES);
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            auto prefs_editor = new wxPreferencesEditor();
+            prefs_editor->AddPage(new PreferencesPageGeneral(this->config));
+            prefs_editor->Show(this);
+        }, wxID_PREFERENCES);
+
+        file_menu->Append(wxID_EXIT, "E&xit", "Quit this program");
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            this->Close(true);
+        }, wxID_EXIT);
+
+        auto *help_menu = new wxMenu;
+        menuBar->Append(help_menu, "&Help");
+
+        help_menu->Append(ID_SHOW_LICENSES, "Licenses");
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            wxDialog *licenses_frame = new wxDialog(this,
+                                                    wxID_ANY,
+                                                    "Licenses",
+                                                    wxDefaultPosition,
+                                                    wxSize(600, 600),
+                                                    wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+            wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
+            wxTextCtrl *licenses_text_ctrl = new wxTextCtrl(
+                    licenses_frame,
+                    wxID_ANY,
+                    wxString::FromAscii(licenses),
+                    wxDefaultPosition,
+                    wxDefaultSize,
+                    wxTE_MULTILINE | wxTE_READONLY | wxBORDER_NONE);
+            sizer->Add(licenses_text_ctrl, 1, wxEXPAND | wxALL);
+            licenses_frame->SetSizer(sizer);
+            licenses_frame->Show();
+        }, ID_SHOW_LICENSES);
+
+        help_menu->Append(wxID_ABOUT);
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            wxAboutDialogInfo info;
+            info.SetName("Sftpgui");
+            info.SetVersion("0.1");
+            info.SetDescription("A no-nonsense SFTP file browser");
+            info.SetCopyright("(C) 2020 Allan Riordan Boll");
+            wxAboutBox(info, this);
+        }, wxID_ABOUT);
+
+        // Most keyboard accelerators for menu items are automatically bound via the string in its title. However, the
+        // ones for the Alt-key additionally need to be set up the in SetAcceleratorTable to work on Win and GTK.
+        // MacOS seems to ignores this table when the focus is on wxDataViewListCtrl, so we rely on the accelerators in
+        // the menu item titles on MacOS.
+        wxAcceleratorEntry entries[] {
+                wxAcceleratorEntry(wxACCEL_ALT, WXK_UP, ID_PARENT_DIR),
         };
         wxAcceleratorTable accel(sizeof(entries), entries);
         this->SetAcceleratorTable(accel);
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onCtrlL, this, EVT_ACCEL_CTRL_L);
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onF5, this, EVT_ACCEL_F5);
-        this->Bind(wxEVT_MENU, &SftpguiFrame::onAltUp, this, EVT_ACCEL_ALT_UP);
 
         // Set up a timer that will watch for changes in local files.
         this->file_watcher_timer.Bind(wxEVT_TIMER, &SftpguiFrame::onFileWatcherTimer, this);
@@ -713,20 +820,36 @@ public:
         // Create remote path text field.
         this->path_text_ctrl = new wxTextCtrl(panel, wxID_ANY, this->current_dir, wxDefaultPosition,
                                               wxDefaultSize, wxTE_PROCESS_ENTER);
+#ifdef __WXOSX__
+        sizer_inner_top->Add(this->path_text_ctrl, 1, wxEXPAND | wxALL, 0);
+#else
         sizer_inner_top->Add(this->path_text_ctrl, 1, wxEXPAND | wxALL, 4);
-        this->Bind(wxEVT_TEXT_ENTER, &SftpguiFrame::onPathTextEnter, this);
+#endif
+        this->path_text_ctrl->Bind(wxEVT_TEXT_ENTER, [&](wxCommandEvent &event) {
+            this->current_dir = this->path_text_ctrl->GetValue();
+            this->refreshDir();
+        });
+        this->path_text_ctrl->Bind(wxEVT_CHAR_HOOK, [&](wxKeyEvent &evt) {
+            if (evt.GetModifiers() == 0 && evt.GetKeyCode() == WXK_ESCAPE && this->path_text_ctrl->HasFocus()) {
+                this->path_text_ctrl->SetValue(this->current_dir);
+                this->path_text_ctrl->SelectNone();
+                this->dir_list_ctrl->SetFocus();
+                return;
+            }
 
-#ifdef __APPLE__
+            evt.Skip();
+        });
+
+#ifdef __WXOSX__
         // On MacOS wxDataViewListCtrl looks best.
         this->dir_list_ctrl = new DvlcDirList(panel);
 #else
         // On GTK and Windows wxListCtrl looks best.
         this->dir_list_ctrl = new LcDirList(panel);
-//        this->dir_list_ctrl = new DvlcDirList(mainPane);
 #endif
         sizer->Add(this->dir_list_ctrl->GetCtrl(), 1, wxEXPAND | wxALL, 0);
+        this->dir_list_ctrl->SetFocus();
 
-        // TODO(allan): exception handling in this lambda...
         this->dir_list_ctrl->BindOnItemActivated([&](int n) {
             string status = "";
             try {
@@ -790,85 +913,23 @@ private:
         }
     }
 
-    void onPathTextEnter(const wxCommandEvent &event) {
-        this->current_dir = this->path_text_ctrl->GetValue();
-        this->refreshDir();
-    }
-
-    void onCtrlL(const wxCommandEvent &event) {
-        this->path_text_ctrl->SetFocus();
-        this->path_text_ctrl->SelectAll();
-    }
-
-    void onF5(const wxCommandEvent &event) {
-        this->refreshDir();
-    }
-
-    void onAltUp(const wxCommandEvent &event) {
-        this->current_dir = normalize_path(this->current_dir + "/..");
-        this->path_text_ctrl->SetValue(this->current_dir);
-        this->refreshDir();
-    }
-
-    void onLicensesMenuItem(const wxCommandEvent &event) {
-        wxDialog *licenses_frame = new wxDialog(this,
-                                                wxID_ANY,
-                                                "Licenses",
-                                                wxDefaultPosition,
-                                                wxSize(600, 600),
-                                                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
-        wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
-        wxTextCtrl *licenses_text_ctrl = new wxTextCtrl(
-                licenses_frame,
-                wxID_ANY,
-                wxString::FromAscii(licenses),
-                wxDefaultPosition,
-                wxDefaultSize,
-                wxTE_MULTILINE | wxTE_READONLY | wxBORDER_NONE);
-        sizer->Add(licenses_text_ctrl, 1, wxEXPAND | wxALL);
-        licenses_frame->SetSizer(sizer);
-        licenses_frame->Show();
-    }
-
-    void onAboutMenuItem(const wxCommandEvent &event) {
-        wxAboutDialogInfo info;
-        info.SetName("Sftpgui");
-        info.SetVersion("0.1");
-        info.SetDescription("A no-nonsense SFTP file browser");
-        info.SetCopyright("(C) 2020 Allan Riordan Boll");
-        wxAboutBox(info, this);
-    }
-
     void refreshDir() {
         this->current_dir_list = this->sftp_connection->getDir(this->current_dir);
 
         auto cmp = [](const DirEntry &a, const DirEntry &b) {
-            if (a.name == "..") {
-                return true;
-            }
-            if (b.name == "..") {
-                return false;
-            }
-            if (a.isDir && !b.isDir) {
-                return true;
-            }
-            if (!a.isDir && b.isDir) {
-                return false;
-            }
-            if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] == '.' && b.name[0] != '.') {
-                return true;
-            }
-            if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] != '.' && b.name[0] == '.') {
-                return false;
-            }
-
+            if (a.name == "..") { return true; }
+            if (b.name == "..") { return false; }
+            if (a.isDir && !b.isDir) { return true; }
+            if (!a.isDir && b.isDir) { return false; }
+            if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] == '.' && b.name[0] != '.') { return true; }
+            if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] != '.' && b.name[0] == '.') { return false; }
             return a.name > b.name;
         };
         sort(this->current_dir_list.begin(), this->current_dir_list.end(), cmp);
 
 
         this->dir_list_ctrl->Refresh(this->current_dir_list);
-        this->setIdleStatusText(string("Fetched dir at " + wxDateTime::Now().FormatISOCombined() + "."));
+        this->setIdleStatusText(string("Retrieved dir list at " + wxDateTime::Now().FormatISOCombined() + "."));
     }
 
     void downloadFile(string name) {
@@ -910,101 +971,6 @@ private:
 
         wxExecute(editor + " " + local_path, wxEXEC_ASYNC);
     }
-
-    void onPreferencesMenuItem(const wxCommandEvent &event) {
-        auto prefs_editor = new wxPreferencesEditor();
-        prefs_editor->AddPage(new PreferencesPageGeneral(this->config));
-        prefs_editor->Show(this);
-    }
-
-    void onQuitMenuItem(const wxCommandEvent &event) {
-        Close(true);
-    }
-};
-
-
-class HostSelectionDialog : public wxDialog {
-    wxConfigBase *config;
-    wxTextCtrl *host;
-    wxTextCtrl *user;
-
-
-public:
-    HostSelectionDialog(wxConfigBase *config) : wxDialog(NULL, -1, "Sftpgui") {
-        this->config = config;
-
-        this->Bind(wxEVT_CLOSE_WINDOW, &HostSelectionDialog::OnClose, this);
-
-        // Main layout.
-        auto *panel = new wxPanel(this);
-        auto *sizer = new wxBoxSizer(wxVERTICAL);
-
-//        auto *sizer_buttons = this->CreateButtonSizer(wxOK);
-//        sizer->Add(sizer_buttons, 0, wxALIGN_RIGHT);
-
-        auto *sizer_buttons = new wxBoxSizer(wxTB_HORIZONTAL);
-        sizer->Add(sizer_buttons, 0, wxALIGN_RIGHT);
-        auto *button_connect = new wxButton(this, wxID_OK, "Connect"); // , wxDefaultPosition, wxSize(70, 30)
-        sizer_buttons->Add(button_connect, 0, wxRIGHT, 10);
-        button_connect->SetDefault();
-
-
-
-        this->SetSizer(sizer);
-
-
-//        auto *sizer_buttons = this->CreateButtonSizer(0);
-
-
-//        auto *sizer_host = new wxBoxSizer(wxHORIZONTAL);
-//        auto *label_host = new wxStaticText(this, wxID_ANY, "Host:");
-//        sizer_host->Add(label_host, 0, wxALL | wxALIGN_CENTER_VERTICAL);
-//        sizer_host->Add(0, 0, 1, wxALL);
-//        this->host = new wxTextCtrl(this,
-//                                    wxID_ANY); // , wxEmptyString, wxDefaultPosition, wxSize(300, -1), wxTE_PROCESS_ENTER
-//        sizer_host->Add(this->host, 0, wxALL | wxALIGN_CENTER_VERTICAL);
-//        vbox->Add(sizer_host, 0, wxGROW | wxALL, 2);
-//
-//        auto *sizer_user = new wxBoxSizer(wxHORIZONTAL);
-//        auto *label_user = new wxStaticText(this, wxID_ANY, "Username:");
-//        sizer_user->Add(label_user, 0, wxALL | wxALIGN_CENTER_VERTICAL);
-//        sizer_user->Add(0, 0, 1, wxALL);
-//        this->user = new wxTextCtrl(this,
-//                                    wxID_ANY); // , wxEmptyString, wxDefaultPosition, wxSize(300, -1), wxTE_PROCESS_ENTER
-//        sizer_user->Add(this->user, 0, wxALL | wxALIGN_CENTER_VERTICAL);
-//        vbox->Add(sizer_user, 0, wxGROW | wxALL, 2);
-//
-//        auto *sizer_buttons = this->CreateButtonSizer(0);
-//        wxButton *okButton = new wxButton(this, wxID_OK, "Connect"); // , wxDefaultPosition, wxSize(70, 30)
-//        okButton->SetDefault();
-//        sizer_buttons->Add(okButton, 1);
-//        wxButton *closeButton = new wxButton(this, wxID_CANCEL, "Close", wxDefaultPosition, wxSize(70, 30));
-//        this->Bind(wxEVT_BUTTON, &HostSelectionDialog::OnCancel, this, wxID_CANCEL);
-//        sizer_buttons->Add(closeButton, 1, wxLEFT, 2);
-//
-//        vbox->Add(panel, 1, wxTOP | wxLEFT | wxRIGHT, 10);
-//        vbox->Add(sizer_buttons, 0, wxALIGN_RIGHT | wxALL, 10);
-    }
-
-private:
-    virtual void OnClose(wxCloseEvent &event) {
-        this->Destroy();
-    }
-
-    virtual void OnCancel(wxCommandEvent &event) {
-        this->Close();
-    }
-
-    virtual bool TransferDataFromWindow() {
-        // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
-        auto sftpConnection = make_unique<SftpConnection>(this->user->GetValue().ToStdString(),
-                                                          this->host->GetValue().ToStdString(), 22);
-        wxFrame *frame = new SftpguiFrame(move(sftpConnection), config);
-        frame->Show();
-
-        this->Close();
-        return true;
-    }
 };
 
 
@@ -1026,17 +992,26 @@ public:
             config->SetRecordDefaults();
             wxConfigBase::Set(config);
 
-            if (!host.empty()) {
-                // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
-                auto sftpConnection = make_unique<SftpConnection>(username, host, port);
-
-                wxFrame *frame = new SftpguiFrame(move(sftpConnection), config);
-                frame->Show();
-            } else {
-                auto dialog = new HostSelectionDialog(config);
-                dialog->Show();
+            if (host.empty()) {
+                // TODO(allan): a better host selection window. Get inspired by Finder's "Connect to Server" window.
+                wxTextEntryDialog dialog(0,
+                                         "Enter remote host.\n"
+                                         "Format: [username@]host:port\n"
+                                         "Defaults to current local username and port 22 if not specified.",
+                                         "Sftpgui");
+                if (dialog.ShowModal() == wxID_CANCEL) {
+                    return false;
+                }
+                if (!this->parseHost(string(dialog.GetValue()))) {
+                    return false;
+                }
             }
 
+            // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
+            auto sftpConnection = make_unique<SftpConnection>(username, host, port);
+
+            wxFrame *frame = new SftpguiFrame(move(sftpConnection), config);
+            frame->Show();
         } catch (...) {
             showException();
             return false;
@@ -1047,18 +1022,16 @@ public:
 
     virtual void OnInitCmdLine(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
         parser.SetSwitchChars(wxT("-"));
-        parser.AddParam("[user@]host", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL);
+        parser.AddParam("[user@]host:port", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL);
         parser.AddSwitch("h", "help", "displays help", wxCMD_LINE_OPTION_HELP);
-        parser.AddOption("p", "port", "remote SSH server port");
     }
 
-    virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
-        if (parser.GetParamCount() > 0) {
-            this->host = parser.GetParam(0);
-        }
-
+    bool parseHost(string host) {
         this->username = wxGetUserId();
-#ifdef WIN32
+        this->host = host;
+        this->port = 22;
+
+#ifdef __WXMSW__
         transform(this->username.begin(), this->username.end(), this->username.begin(), ::tolower);
 #endif
 
@@ -1068,16 +1041,29 @@ public:
             this->host = this->host.substr(i + 1);
         }
 
-        wxString p;
-        if (parser.Found("p", &p)) {
-            string ps = string(p);
+        if (this->host.find(":") != string::npos) {
+            int i = this->host.find(":");
+
+            string ps = string(this->host.substr(i + 1));
             if (!std::all_of(ps.begin(), ps.end(), ::isdigit)) {
                 wxLogFatalError("non-digit port number");
                 return false;
             }
-            this->port = stoi(string(p));
+            this->port = stoi(string(ps));
             if (!(0 < this->port && this->port < 65536)) {
                 wxLogFatalError("invalid port number");
+                return false;
+            }
+
+            this->host = this->host.substr(0, i);
+        }
+
+        return true;
+    }
+
+    virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
+        if (parser.GetParamCount() > 0) {
+            if (!this->parseHost(string(parser.GetParam(0)))) {
                 return false;
             }
         }
