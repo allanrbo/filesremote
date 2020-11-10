@@ -438,11 +438,13 @@ public:
 
 
 typedef std::function<void(int)> OnItemActivatedCb;
+typedef std::function<void(int)> OnColumnHeaderClickCb;
 
 // A base class, because wxDataViewListCtrl looks best on MacOS, and wxListCtrl looks best on GTK and Windows.
 class DirListCtrl {
 protected:
     OnItemActivatedCb onItemActivatedCb;
+    OnColumnHeaderClickCb onColumnHeaderClickCb;
     wxImageList *iconsImageList;
 
     int iconIdx(DirEntry entry) {
@@ -473,6 +475,10 @@ public:
     void BindOnItemActivated(OnItemActivatedCb cb) {
         this->onItemActivatedCb = cb;
     }
+
+    void BindOnColumnHeaderClickCb(OnColumnHeaderClickCb cb) {
+        this->onColumnHeaderClickCb = cb;
+    }
 };
 
 
@@ -488,12 +494,20 @@ public:
         this->dvlc->AppendIconTextColumn("Name", wxDATAVIEW_CELL_INERT, 300);
         this->dvlc->AppendTextColumn("Size", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc->AppendTextColumn("Modified", wxDATAVIEW_CELL_INERT, 150);
-        this->dvlc->AppendTextColumn("Permissions", wxDATAVIEW_CELL_INERT, 100);
+        this->dvlc->AppendTextColumn("Mode", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc->AppendTextColumn("Owner", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc->AppendTextColumn("Group", wxDATAVIEW_CELL_INERT, 100);
-        this->dvlc->wxDataViewListCtrl::Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, [&](wxDataViewEvent &evt) {
+
+        this->dvlc->Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, [&](wxDataViewEvent &evt) {
+            if (!evt.GetItem()) {
+                return;
+            }
             int i = this->dvlc->GetItemData(evt.GetItem());
             this->onItemActivatedCb(i);
+        });
+
+        this->dvlc->Bind(wxEVT_DATAVIEW_COLUMN_HEADER_CLICK,  [&](wxDataViewEvent &evt) {
+            this->onColumnHeaderClickCb(evt.GetColumn());
         });
     }
 
@@ -551,13 +565,17 @@ public:
         this->list_ctrl->InsertColumn(0, "Name", wxLIST_FORMAT_LEFT, 300);
         this->list_ctrl->InsertColumn(1, "Size", wxLIST_FORMAT_LEFT, 100);
         this->list_ctrl->InsertColumn(2, "Modified", wxLIST_FORMAT_LEFT, 150);
-        this->list_ctrl->InsertColumn(3, "Permissions", wxLIST_FORMAT_LEFT, 100);
+        this->list_ctrl->InsertColumn(3, "Mode", wxLIST_FORMAT_LEFT, 100);
         this->list_ctrl->InsertColumn(4, "Owner", wxLIST_FORMAT_LEFT, 100);
         this->list_ctrl->InsertColumn(5, "Owner", wxLIST_FORMAT_LEFT, 100);
 
-        this->list_ctrl->wxListCtrl::Bind(wxEVT_LIST_ITEM_ACTIVATED, [&](wxListEvent &event) {
-            int i = this->list_ctrl->GetItemData(event.GetItem());
+        this->list_ctrl->Bind(wxEVT_LIST_ITEM_ACTIVATED, [&](wxListEvent &evt) {
+            int i = this->list_ctrl->GetItemData(evt.GetItem());
             this->onItemActivatedCb(i);
+        });
+
+        this->list_ctrl->Bind(wxEVT_LIST_COL_CLICK, [&](wxListEvent& evt){
+            this->onColumnHeaderClickCb(evt.GetColumn());
         });
     }
 
@@ -677,6 +695,8 @@ class SftpguiFrame : public wxFrame {
     wxTimer file_watcher_timer;
     string current_dir = "/";
     vector<DirEntry> current_dir_list;
+    int sort_column = 0;
+    bool sort_desc = false;
     vector<OpenedFile> opened_files_local;
 
 public:
@@ -846,6 +866,7 @@ public:
 #else
         // On GTK and Windows wxListCtrl looks best.
         this->dir_list_ctrl = new LcDirList(panel);
+//        this->dir_list_ctrl = new DvlcDirList(panel);
 #endif
         sizer->Add(this->dir_list_ctrl->GetCtrl(), 1, wxEXPAND | wxALL, 0);
         this->dir_list_ctrl->SetFocus();
@@ -864,6 +885,17 @@ public:
             } catch (...) {
                 showException();
             }
+        });
+
+        this->dir_list_ctrl->BindOnColumnHeaderClickCb([&](int col) {
+            if (this->sort_column == col) {
+                this->sort_desc = !this->sort_desc;
+            } else {
+                this->sort_desc = false;
+                this->sort_column = col;
+            }
+
+            this->sortAndPopulateDir();
         });
 
         panel->SetSizerAndFit(sizer);
@@ -915,21 +947,56 @@ private:
 
     void refreshDir() {
         this->current_dir_list = this->sftp_connection->getDir(this->current_dir);
+        this->sortAndPopulateDir();
+        this->setIdleStatusText(string("Retrieved dir list at " + wxDateTime::Now().FormatISOCombined() + "."));
+    }
 
-        auto cmp = [](const DirEntry &a, const DirEntry &b) {
+    void sortAndPopulateDir() {
+        auto cmp = [&](const DirEntry &a, const DirEntry &b) {
             if (a.name == "..") { return true; }
             if (b.name == "..") { return false; }
             if (a.isDir && !b.isDir) { return true; }
             if (!a.isDir && b.isDir) { return false; }
+
+            string a_val, b_val;
+            if (this->sort_column == 1) {
+                if (this->sort_desc) {
+                    return a.size < b.size;
+                }
+                return a.size > b.size;
+            } else if (this->sort_column == 2) {
+                if (this->sort_desc) {
+                    return a.modified < b.modified;
+                }
+                return a.modified > b.modified;
+            } else if (this->sort_column == 3) {
+                if (this->sort_desc) {
+                    return a.mode_str < b.mode_str;
+                }
+                return a.mode_str > b.mode_str;
+            } else if (this->sort_column == 4) {
+                if (this->sort_desc) {
+                    return a.owner < b.owner;
+                }
+                return a.owner > b.owner;
+            } else if (this->sort_column == 5) {
+                if (this->sort_desc) {
+                    return a.group < b.group;
+                }
+                return a.group > b.group;
+            }
+
+            // Assume sort_column == 0.
             if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] == '.' && b.name[0] != '.') { return true; }
             if (a.name.length() > 0 && b.name.length() > 0 && a.name[0] != '.' && b.name[0] == '.') { return false; }
+            if (this->sort_desc) {
+                return a.name < b.name;
+            }
             return a.name > b.name;
         };
         sort(this->current_dir_list.begin(), this->current_dir_list.end(), cmp);
 
-
         this->dir_list_ctrl->Refresh(this->current_dir_list);
-        this->setIdleStatusText(string("Retrieved dir list at " + wxDateTime::Now().FormatISOCombined() + "."));
     }
 
     void downloadFile(string name) {

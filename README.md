@@ -128,6 +128,7 @@ Compiling:
 TODO
 ====
 
+ * UTF 8 filenames
  * Fallback to password if agent fails
  * Handle permission issue while uploading.
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
