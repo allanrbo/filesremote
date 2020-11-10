@@ -128,12 +128,16 @@ Compiling:
 TODO
 ====
 
- * Clean up old files on startup
- * Fallback to password if agent fails
  * Handle permission issue while uploading.
+ * Handle dropped connections
+ * Put all SSH stuff in separate thread, so UI never freezes
+ * Clean up old files on startup
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
  * Rename files
  * Create files
  * Create directories
  * Change permissions
  * Sudo
+ * Fully use cmake on all platforms
+ * Split into files
+ * Ensure use of unique_ptr everywhere possible, instead of raw pointers

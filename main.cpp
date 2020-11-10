@@ -142,6 +142,9 @@ public:
     }
 };
 
+
+typedef std::function<string()> PasswordPromptCb;
+
 class SftpConnection {
     LIBSSH2_SESSION *session = NULL;
     LIBSSH2_SFTP *sftp_session = NULL;
@@ -156,7 +159,7 @@ public:
     string host;
     int port;
 
-    SftpConnection(string username, string host, int port) {
+    SftpConnection(string username, string host, int port, PasswordPromptCb passwordPromptCb) {
         this->username = username;
         this->host = host;
         this->port = port;
@@ -210,32 +213,14 @@ public:
         // TODO(allan): verify fingerprint = libssh2_hostkey_hash(session, LIBSSH2_HOSTKEY_HASH_SHA1);
         //// char *userauthlist = libssh2_userauth_list(this->session, username.c_str(), username.size());
 
-        LIBSSH2_AGENT *agent = libssh2_agent_init(this->session);
-        if (!agent) {
-            throw runtime_error("libssh2_agent_init failed");
-        }
 
-        if (libssh2_agent_connect(agent)) {
-            throw runtime_error("libssh2_agent_connect failed");
-        }
-
-        if (libssh2_agent_list_identities(agent)) {
-            throw runtime_error("libssh2_agent_list_identities failed");
-        }
-
-        struct libssh2_agent_publickey *identity, *prev_identity = NULL;
-        while (1) {
-            rc = libssh2_agent_get_identity(agent, &identity, prev_identity);
-            if (rc != 0) {
-                throw runtime_error("libssh2_agent_get_identity failed");
+        if (!this->agentAuth()) {
+            string passwd = passwordPromptCb();
+            if (libssh2_userauth_password(this->session, this->username.c_str(), passwd.c_str())) {
+                throw runtime_error("libssh2_userauth_password failed");
             }
-
-            if (libssh2_agent_userauth(agent, username.c_str(), identity) == 0) {
-                break;
-            }
-
-            prev_identity = identity;
         }
+
 
         this->sftp_session = libssh2_sftp_init(this->session);
         if (!this->sftp_session) {
@@ -436,6 +421,38 @@ public:
         }
 
         libssh2_exit();
+    }
+
+private:
+    bool agentAuth() {
+        LIBSSH2_AGENT *agent = libssh2_agent_init(this->session);
+        if (!agent) {
+            return false;
+        }
+
+        if (libssh2_agent_connect(agent)) {
+            return false;
+        }
+
+        if (libssh2_agent_list_identities(agent)) {
+            return false;
+        }
+
+        struct libssh2_agent_publickey *identity, *prev_identity = NULL;
+        while (1) {
+            int rc = libssh2_agent_get_identity(agent, &identity, prev_identity);
+            if (rc != 0) {
+                return false;
+            }
+
+            if (libssh2_agent_userauth(agent, username.c_str(), identity) == 0) {
+                return true;
+            }
+
+            prev_identity = identity;
+        }
+
+        return false;
     }
 };
 
@@ -1165,8 +1182,14 @@ public:
                 }
             }
 
+            auto passwdCb = [&](void) {
+                auto s = "Enter password for " + this->username + "@" + this->host + ":" + to_string(this->port);
+                auto passwd = wxGetPasswordFromUser(s, "Sftpgui", wxEmptyString, 0);
+                return passwd.ToStdString();
+            };
+
             // TODO(allan): put in thread. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
-            auto sftpConnection = make_unique<SftpConnection>(username, host, port);
+            auto sftpConnection = make_unique<SftpConnection>(username, host, port, passwdCb);
 
             wxFrame *frame = new SftpguiFrame(move(sftpConnection), config);
             frame->Show();
