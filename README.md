@@ -130,7 +130,7 @@ TODO
 
  * Handle permission issue while uploading.
  * Handle dropped connections
- * Put all SSH stuff in separate thread, so UI never freezes
+ * Put all SSH stuff in separate thread, so UI never freezes. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
  * Clean up old files on startup
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
  * Rename files
@@ -141,3 +141,6 @@ TODO
  * Fully use cmake on all platforms
  * Split into files
  * Ensure use of unique_ptr everywhere possible, instead of raw pointers
+ * A better host selection window. Get inspired by Finder's "Connect to Server" window.
+ * Better control the config path. ".config/sftpgui"
+ * Backspace should navigate back (keep stack of prev dirs).
