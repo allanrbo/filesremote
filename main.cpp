@@ -1098,7 +1098,9 @@ private:
 
         string remote_path = normalize_path(this->current_dir + "/" + name);
         string local_tmp = string(wxStandardPaths::Get().GetTempDir());
-        string local_dir = normalize_path(local_tmp + "/sftpgui/" + this->current_dir);
+        string local_dir = normalize_path(local_tmp + "/sftpgui/" +
+                                          this->sftp_connection->username + "@" + this->sftp_connection->host + "_" +
+                                          to_string(this->sftp_connection->port) + "/" + this->current_dir);
         string local_path = normalize_path(local_dir + "/" + name);
 
         // TODO(allan): restrict permissions

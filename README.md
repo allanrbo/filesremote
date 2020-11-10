@@ -128,8 +128,12 @@ Compiling:
 TODO
 ====
 
- * Prefix local paths with hostname
  * Clean up old files on startup
  * Fallback to password if agent fails
  * Handle permission issue while uploading.
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
+ * Rename files
+ * Create files
+ * Create directories
+ * Change permissions
+ * Sudo
