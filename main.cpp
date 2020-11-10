@@ -529,7 +529,7 @@ public:
             wxIcon icon = this->iconsImageList->GetIcon(this->iconIdx(entries[i]));
 
             wxVector<wxVariant> data;
-            data.push_back(wxVariant(wxDataViewIconText(entries[i].name, icon)));
+            data.push_back(wxVariant(wxDataViewIconText(wxString::FromUTF8(entries[i].name), icon)));
             data.push_back(wxVariant(to_string(entries[i].size)));
             data.push_back(wxVariant(entries[i].modifiedFormatted()));
             data.push_back(wxVariant(entries[i].mode_str));
@@ -622,7 +622,7 @@ public:
         for (int i = 0; i < entries.size(); i++) {
             this->list_ctrl->InsertItem(i, entries[i].name, this->iconIdx(entries[i]));
             this->list_ctrl->SetItemData(i, i);
-            this->list_ctrl->SetItem(i, 0, entries[i].name);
+            this->list_ctrl->SetItem(i, 0, wxString::FromUTF8(entries[i].name));
             this->list_ctrl->SetItem(i, 1, to_string(entries[i].size));
             this->list_ctrl->SetItem(i, 2, entries[i].modifiedFormatted());
             this->list_ctrl->SetItem(i, 3, entries[i].mode_str);
@@ -1125,7 +1125,7 @@ private:
         string d = string(wxDateTime::Now().FormatISOCombined());
         this->setIdleStatusText("Downloaded " + remote_path + " at " + d + ".");
 
-        wxExecute(editor + " " + local_path, wxEXEC_ASYNC);
+        wxExecute(wxString::FromUTF8(editor + " " + local_path), wxEXEC_ASYNC);
     }
 };
 
