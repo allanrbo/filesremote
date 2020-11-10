@@ -235,7 +235,7 @@ public:
         this->home_dir_ = string(buf);
     }
 
-    vector<DirEntry> getDir(string path) {
+    vector<DirEntry> GetDir(string path) {
         int rc;
 
         this->sftp_opendir_handle_ = libssh2_sftp_opendir(this->sftp_session_, path.c_str());
@@ -321,7 +321,7 @@ public:
         return files;
     }
 
-    void downloadFile(string remoteSrcPath, string localDstPath) {
+    void DownloadFile(string remoteSrcPath, string localDstPath) {
         this->sftp_openfile_handle_ = libssh2_sftp_open(
                 this->sftp_session_,
                 remoteSrcPath.c_str(),
@@ -352,7 +352,7 @@ public:
         this->local_file_handle_ = 0;
     }
 
-    void uploadFile(string localSrcPath, string remoteDstPath) {
+    void UploadFile(string localSrcPath, string remoteDstPath) {
         this->sftp_openfile_handle_ = libssh2_sftp_open(
                 this->sftp_session_,
                 remoteDstPath.c_str(),
@@ -1010,7 +1010,7 @@ private:
         for (int i = 0; i < this->opened_files_local_.size(); ++i) {
             OpenedFile f = this->opened_files_local_[i];
             if (last_write_time(f.local_path_) > f.modified_) {
-                this->sftp_connection_->uploadFile(f.local_path_, f.remote_path_);
+                this->sftp_connection_->UploadFile(f.local_path_, f.remote_path_);
                 this->opened_files_local_[i].modified_ = last_write_time(f.local_path_);
                 last_upload = f.remote_path_;
             }
@@ -1051,7 +1051,7 @@ private:
         if (preserve_selection) {
             this->RememberSelected();
         }
-        this->current_dir_list_ = this->sftp_connection_->getDir(this->current_dir_);
+        this->current_dir_list_ = this->sftp_connection_->GetDir(this->current_dir_);
         this->SortAndPopulateDir();
         this->SetIdleStatusText(string("Retrieved dir list at " + wxDateTime::Now().FormatISOCombined() + "."));
         if (preserve_selection) {
@@ -1125,7 +1125,7 @@ private:
         // TODO(allan): restrict permissions
         create_directories(local_dir);
 
-        this->sftp_connection_->downloadFile(remote_path, local_path);
+        this->sftp_connection_->DownloadFile(remote_path, local_path);
 
         bool previously_downloaded = false;
         for (int i = 0; i < this->opened_files_local_.size(); ++i) {
