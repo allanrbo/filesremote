@@ -669,13 +669,11 @@ public:
         }
     }
 
-
     void SetSelected(vector<int> selected) {
         for (int i = 0; i < selected.size(); ++i) {
             this->list_ctrl_->SetItemState(selected[i], wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
         }
     }
-
 
     vector<int> GetSelected() {
         vector<int> r;
@@ -701,7 +699,9 @@ public:
 
     void SetHighlighted(int row) {
         this->list_ctrl_->SetItemState(row, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
-        this->list_ctrl_->EnsureVisible(row);
+        if (row != 0) {
+            this->list_ctrl_->EnsureVisible(row);
+        }
     }
 };
 
@@ -1024,6 +1024,7 @@ private:
                     this->sftp_connection_->UploadFile(f.local_path_, f.remote_path_);
                 } catch (UploadOpenFailed) {
                     wxLogError("Failed to write remote file. Possibly a permissions issue.");
+                    this->RequestUserAttention(wxUSER_ATTENTION_ERROR);
                 }
                 this->opened_files_local_[i].modified_ = last_write_time(f.local_path_);
                 last_upload = f.remote_path_;
