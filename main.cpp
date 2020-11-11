@@ -62,6 +62,7 @@ using std::filesystem::file_time_type;
 using std::filesystem::create_directories;
 using std::filesystem::last_write_time;
 using std::filesystem::remove;
+using std::exception;
 
 #define BUFLEN 4096
 #define ID_SET_DIR 10
@@ -139,6 +140,10 @@ public:
         t.MakeUTC();
         return t.FormatISOCombined(' ').ToStdString();
     }
+};
+
+
+class UploadOpenFailed : public exception {
 };
 
 
@@ -359,7 +364,7 @@ public:
                 LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC,
                 0);
         if (!this->sftp_openfile_handle_) {
-            throw runtime_error("libssh2_sftp_open failed");
+            throw UploadOpenFailed();
         }
 
         this->local_file_handle_ = fopen(localSrcPath.c_str(), "rb");
@@ -494,9 +499,9 @@ public:
 
     virtual vector<int> GetSelected() = 0;
 
-    virtual int GetHighlighted() = 0;
-
     virtual void SetSelected(vector<int>) = 0;
+
+    virtual int GetHighlighted() = 0;
 
     virtual void SetHighlighted(int) = 0;
 
@@ -516,7 +521,7 @@ class DvlcDirList : public DirListCtrl {
 public:
     explicit DvlcDirList(wxWindow *parent) : DirListCtrl() {
         this->dvlc_ = new wxDataViewListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-                                            wxDV_MULTIPLE | wxDV_ROW_LINES);
+                                             wxDV_MULTIPLE | wxDV_ROW_LINES);
 
         // TODO(allan): wxDATAVIEW_CELL_EDITABLE?
         this->dvlc_->AppendIconTextColumn("Name", wxDATAVIEW_CELL_INERT, 300);
@@ -598,7 +603,11 @@ public:
     }
 
     void SetHighlighted(int row) {
-        this->dvlc_->SetCurrentItem(this->dvlc_->RowToItem(row));
+        auto item = this->dvlc_->RowToItem(row);
+        if (item.IsOk()) {
+            this->dvlc_->SetCurrentItem(item);
+            this->dvlc_->EnsureVisible(item);
+        }
     }
 };
 
@@ -670,7 +679,7 @@ public:
 
     vector<int> GetSelected() {
         vector<int> r;
-        long cur = -1;
+        int64_t cur = -1;
         while (1) {
             cur = this->list_ctrl_->GetNextItem(cur, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
             if (cur == -1) {
@@ -692,6 +701,7 @@ public:
 
     void SetHighlighted(int row) {
         this->list_ctrl_->SetItemState(row, wxLIST_STATE_FOCUSED, wxLIST_STATE_FOCUSED);
+        this->list_ctrl_->EnsureVisible(row);
     }
 };
 
@@ -1010,7 +1020,11 @@ private:
         for (int i = 0; i < this->opened_files_local_.size(); ++i) {
             OpenedFile f = this->opened_files_local_[i];
             if (last_write_time(f.local_path_) > f.modified_) {
-                this->sftp_connection_->UploadFile(f.local_path_, f.remote_path_);
+                try {
+                    this->sftp_connection_->UploadFile(f.local_path_, f.remote_path_);
+                } catch (UploadOpenFailed) {
+                    wxLogError("Failed to write remote file. Possibly a permissions issue.");
+                }
                 this->opened_files_local_[i].modified_ = last_write_time(f.local_path_);
                 last_upload = f.remote_path_;
             }
@@ -1050,13 +1064,14 @@ private:
     void RefreshDir(bool preserve_selection) {
         if (preserve_selection) {
             this->RememberSelected();
+        } else {
+            this->stored_selected_.clear();
+            this->stored_highlighted_ = "";
         }
         this->current_dir_list_ = this->sftp_connection_->GetDir(this->current_dir_);
         this->SortAndPopulateDir();
         this->SetIdleStatusText(string("Retrieved dir list at " + wxDateTime::Now().FormatISOCombined() + "."));
-        if (preserve_selection) {
-            this->RecallSelected();
-        }
+        this->RecallSelected();
     }
 
     void SortAndPopulateDir() {
@@ -1096,7 +1111,8 @@ private:
 
             // Assume sort_column == 0.
             if (a.name_.length() > 0 && b.name_.length() > 0 && a.name_[0] == '.' && b.name_[0] != '.') { return true; }
-            if (a.name_.length() > 0 && b.name_.length() > 0 && a.name_[0] != '.' && b.name_[0] == '.') { return false; }
+            if (a.name_.length() > 0 && b.name_.length() > 0 && a.name_[0] != '.' &&
+                b.name_[0] == '.') { return false; }
             if (this->sort_desc_) {
                 return a.name_ < b.name_;
             }
@@ -1118,7 +1134,8 @@ private:
         string remote_path = normalize_path(this->current_dir_ + "/" + name);
         string local_tmp = string(wxStandardPaths::Get().GetTempDir());
         string local_dir = normalize_path(local_tmp + "/sftpgui/" +
-                                          this->sftp_connection_->username_ + "@" + this->sftp_connection_->host_ + "_" +
+                                          this->sftp_connection_->username_ + "@" + this->sftp_connection_->host_ +
+                                          "_" +
                                           to_string(this->sftp_connection_->port_) + "/" + this->current_dir_);
         string local_path = normalize_path(local_dir + "/" + name);
 
@@ -1146,7 +1163,7 @@ private:
         string d = string(wxDateTime::Now().FormatISOCombined());
         this->SetIdleStatusText("Downloaded " + remote_path + " at " + d + ".");
 
-        wxExecute(wxString::FromUTF8(editor + " " + local_path), wxEXEC_ASYNC);
+        wxExecute(wxString::FromUTF8(editor + " \"" + local_path + "\""), wxEXEC_ASYNC);
     }
 };
 

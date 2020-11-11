@@ -128,9 +128,10 @@ Compiling:
 TODO
 ====
 
- * Handle permission issue while uploading.
  * Handle dropped connections
+ * Drag & drop file upload / download
  * Put all SSH stuff in separate thread, so UI never freezes. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
+ * Maybe just drop listctrl and only use dataviewctrl. listctrl has issues with retaining scroll position after refresh.
  * Clean up old files on startup
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
  * Rename files
