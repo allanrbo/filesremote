@@ -128,10 +128,15 @@ Compiling:
 TODO
 ====
 
- * Handle dropped connections
- * Drag & drop file upload / download
+ * UTF8 issue on windows with file download
+ * UTF8 issue in error messages
  * Put all SSH stuff in separate thread, so UI never freezes. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
- * Maybe just drop listctrl and only use dataviewctrl. listctrl has issues with retaining scroll position after refresh.
+ * Handle dropped connections
+ * File not found error
+ * Add a FilterAway method to Channel that can be used to remove events that superseed other events, such as when enqueuing a dir change and there are already enqueued dir changes, or when returning from a file download and there were other file requests in queue for the same file.
+ * Second navigation that happened before the first navigation returned. Or third or fourth. Handle nicely.
+ * Drag & drop file upload / download
+ * Ctrl-c / ctrl-v
  * Clean up old files on startup
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
  * Rename files
@@ -145,3 +150,18 @@ TODO
  * A better host selection window. Get inspired by Finder's "Connect to Server" window.
  * Better control the config path. ".config/sftpgui"
  * Backspace should navigate back (keep stack of prev dirs).
+ * Warn if thumbprint changed
+ * What happens if we try to upload to a dir that has since been deleted...
+ * More human friendly size numbers (KiB, MiB, etc.)
+
+Error conditions to test:
+ * Bad DNS name while connecting.
+ * Bad IP while connecting.
+ * Connecting to a port where nothing is listening.
+ * Connecting to a valid TCP port but that is not SSH.
+ * Connecting to a tarpit.
+ * Disconnect cable and then refresh.
+ * Disconnect cable and then modify locally opened file (auto upload).
+ * Modify file which we do not have write permissions to (auto upload).
+ * List directory which we do not have permissions to.
+ * List directory which remotely is mounted to something which has lost connection (broken FUSE for example).
