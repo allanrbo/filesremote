@@ -58,6 +58,7 @@
 #include "./licensestrings.h"
 
 using std::string;
+using std::wstring;
 using std::to_string;
 using std::vector;
 using std::unordered_set;
@@ -71,6 +72,8 @@ using std::filesystem::file_time_type;
 using std::filesystem::create_directories;
 using std::filesystem::last_write_time;
 using std::filesystem::remove;
+using std::filesystem::remove_all;
+using std::filesystem::exists;
 using std::exception;
 using std::thread;
 using std::map;
@@ -147,6 +150,15 @@ string normalize_path(string path) {
 
     return r;
 }
+
+
+#ifdef __WXMSW__
+wstring localPathUnicode(string local_path) { return wxString::FromUTF8(local_path).ToStdWstring(); }
+#else
+
+string localPathUnicode(string local_path) { return local_path; }
+
+#endif
 
 
 // Inspired by https://st.xorian.net/blog/2012/08/go-style-channel-in-c/ .
@@ -256,13 +268,40 @@ public:
 };
 
 
+// RAII wrapper to ensure LIBSSH2_SFTP_HANDLE gets closed.
+class SftpHandle {
+public:
+    LIBSSH2_SFTP_HANDLE *handle_;
+
+    SftpHandle(LIBSSH2_SFTP_HANDLE *handle) : handle_(handle) {}
+
+    ~SftpHandle() {
+        if (this->handle_) {
+            libssh2_sftp_close(this->handle_);
+        }
+    }
+};
+
+
+// RAII wrapper to ensure FILE gets closed.
+class FileHandle {
+public:
+    FILE *handle_;
+
+    FileHandle(FILE *handle) : handle_(handle) {}
+
+    ~FileHandle() {
+        if (this->handle_) {
+            fclose(this->handle_);
+        }
+    }
+};
+
+
 class SftpConnection {
 private:
     LIBSSH2_SESSION *session_ = NULL;
     LIBSSH2_SFTP *sftp_session_ = NULL;
-    LIBSSH2_SFTP_HANDLE *sftp_opendir_handle_ = NULL;
-    LIBSSH2_SFTP_HANDLE *sftp_openfile_handle_ = NULL;
-    FILE *local_file_handle_ = 0;
     int sock_ = 0;
 
 public:
@@ -329,8 +368,8 @@ public:
     vector<DirEntry> GetDir(string path) {
         int rc;
 
-        this->sftp_opendir_handle_ = libssh2_sftp_opendir(this->sftp_session_, path.c_str());
-        if (!this->sftp_opendir_handle_) {
+        auto sftp_handle_ = SftpHandle(libssh2_sftp_opendir(this->sftp_session_, path.c_str()));
+        if (!sftp_handle_.handle_) {
             if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
                 unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
                 if (err == LIBSSH2_FX_PERMISSION_DENIED) {
@@ -353,7 +392,7 @@ public:
             memset(name, 0, BUFLEN);
             memset(line, 0, BUFLEN);
 
-            rc = libssh2_sftp_readdir_ex(this->sftp_opendir_handle_, name, sizeof(name), line, sizeof(line), &attrs);
+            rc = libssh2_sftp_readdir_ex(sftp_handle_.handle_, name, sizeof(name), line, sizeof(line), &attrs);
             if (rc == LIBSSH2_ERROR_EAGAIN) {
                 continue;
             }
@@ -414,21 +453,16 @@ public:
             files.push_back(d);
         }
 
-        if (this->sftp_opendir_handle_) {
-            libssh2_sftp_closedir(this->sftp_opendir_handle_);
-            this->sftp_opendir_handle_ = NULL;
-        }
-
         return files;
     }
 
     void DownloadFile(string remote_src_path, string local_dst_path) {
-        this->sftp_openfile_handle_ = libssh2_sftp_open(
+        auto sftp_handle_ = SftpHandle(libssh2_sftp_open(
                 this->sftp_session_,
                 remote_src_path.c_str(),
                 LIBSSH2_FXF_READ,
-                0);
-        if (!this->sftp_openfile_handle_) {
+                0));
+        if (!sftp_handle_.handle_) {
             if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
                 unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
                 if (err == LIBSSH2_FX_PERMISSION_DENIED || err == LIBSSH2_FX_WRITE_PROTECT) {
@@ -439,14 +473,18 @@ public:
             throw ConnectionError(this->GetLastErrorMsg());
         }
 
-        this->local_file_handle_ = fopen(local_dst_path.c_str(), "wb");
+#ifdef __WXMSW__
+        auto local_file_handle_ = FileHandle(_wfopen(localPathUnicode(local_dst_path).c_str(), L"wb"));
+#else
+        auto local_file_handle_ = FileHandle(fopen(local_dst_path.c_str(), "wb"));
+#endif
         // TODO(allan): error handling for fopen.
 
         char buf[BUFLEN];
         while (1) {
-            int rc = libssh2_sftp_read(this->sftp_openfile_handle_, buf, BUFLEN);
+            int rc = libssh2_sftp_read(sftp_handle_.handle_, buf, BUFLEN);
             if (rc > 0) {
-                fwrite(buf, 1, rc, this->local_file_handle_);
+                fwrite(buf, 1, rc, local_file_handle_.handle_);
                 // TODO(allan): error handling for fwrite.
             } else if (rc == 0) {
                 break;
@@ -457,20 +495,15 @@ public:
                 throw ConnectionError("libssh2_sftp_read failed. " + this->GetLastErrorMsg());
             }
         }
-
-        libssh2_sftp_close(this->sftp_openfile_handle_);
-
-        fclose(this->local_file_handle_);
-        this->local_file_handle_ = 0;
     }
 
     void UploadFile(string local_src_path, string remote_dst_path) {
-        this->sftp_openfile_handle_ = libssh2_sftp_open(
+        auto sftp_openfile_handle_ = SftpHandle(libssh2_sftp_open(
                 this->sftp_session_,
                 remote_dst_path.c_str(),
                 LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC,
-                0);
-        if (!this->sftp_openfile_handle_) {
+                0));
+        if (!sftp_openfile_handle_.handle_) {
             if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
                 unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
                 if (err == LIBSSH2_FX_PERMISSION_DENIED || err == LIBSSH2_FX_WRITE_PROTECT) {
@@ -484,17 +517,21 @@ public:
             throw ConnectionError(this->GetLastErrorMsg());
         }
 
-        this->local_file_handle_ = fopen(local_src_path.c_str(), "rb");
+#ifdef __WXMSW__
+        auto local_file_handle_ = FileHandle(_wfopen(localPathUnicode(local_src_path).c_str(), L"rb"));
+#else
+        auto local_file_handle_ = FileHandle(fopen(local_src_path.c_str(), "rb"));
+#endif
         // TODO(allan): error handling for fopen.
 
         char buf[BUFLEN];
         while (1) {
-            int rc = fread(buf, 1, BUFLEN, this->local_file_handle_);
+            int rc = fread(buf, 1, BUFLEN, local_file_handle_.handle_);
             if (rc > 0) {
                 int nread = rc;
                 char *p = buf;
                 while (nread) {
-                    rc = libssh2_sftp_write(this->sftp_openfile_handle_, buf, rc);
+                    rc = libssh2_sftp_write(sftp_openfile_handle_.handle_, buf, rc);
                     if (rc < 0) {
                         if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
                             unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
@@ -514,26 +551,9 @@ public:
                 break;
             }
         }
-
-        libssh2_sftp_close(this->sftp_openfile_handle_);
-
-        fclose(this->local_file_handle_);
-        this->local_file_handle_ = 0;
     }
 
     ~SftpConnection() {
-        if (this->local_file_handle_) {
-            fclose(this->local_file_handle_);
-        }
-
-        if (this->sftp_openfile_handle_) {
-            libssh2_sftp_close(this->sftp_openfile_handle_);
-        }
-
-        if (this->sftp_opendir_handle_) {
-            libssh2_sftp_closedir(this->sftp_opendir_handle_);
-        }
-
         if (this->sftp_session_) {
             libssh2_sftp_shutdown(this->sftp_session_);
         }
@@ -1102,6 +1122,8 @@ class SftpguiFrame : public wxFrame {
     string username_;
     string host_;
     int port_;
+    string conn_str_;
+    string local_tmp_;
     wxConfigBase *config_;
     DirListCtrl *dir_list_ctrl_;
     wxTextCtrl *path_text_ctrl_;
@@ -1133,13 +1155,24 @@ public:
         this->port_ = port;
         this->config_ = config;
 
+        // Create our tmp directory.
+        this->conn_str_ = this->username_ + "@" + this->host_ + "_" + to_string(this->port_);
+        auto local_tmp = string(wxStandardPaths::Get().GetTempDir());
+        local_tmp = normalize_path(local_tmp + "/sftpgui/" + this->conn_str_);
+        this->local_tmp_ = local_tmp;
+        for (int i = 2; exists(localPathUnicode(this->local_tmp_)); i++) {
+            // If another instance is already open and using this path, then choose a different path.
+            this->local_tmp_ = local_tmp + "_" + to_string(i);
+        }
+        create_directories(localPathUnicode(this->local_tmp_));
+
 #ifdef __WXMSW__
         this->SetIcon(wxIcon("aaaa"));
 #elif __WXGTK__
         this->SetIcon(wxIcon(icon_48x48));
 #endif
 
-        this->SetTitle("Sftpgui - " + username + "@" + host + ":" + to_string(port));
+        this->SetTitle("Sftpgui - " + this->conn_str_);
         this->CreateStatusBar();
 
         // Create menus.
@@ -1254,7 +1287,8 @@ public:
         sizer->Add(sizer_inner_top, 0, wxEXPAND | wxALL, 1);
 
         // Create remote path text field.
-        this->path_text_ctrl_ = new wxTextCtrl(panel, wxID_ANY, this->current_dir_, wxDefaultPosition,
+        this->path_text_ctrl_ = new wxTextCtrl(panel, wxID_ANY, wxString::FromUTF8(this->current_dir_),
+                                               wxDefaultPosition,
                                                wxDefaultSize, wxTE_PROCESS_ENTER);
 #ifdef __WXOSX__
         sizer_inner_top->Add(this->path_text_ctrl_, 1, wxEXPAND | wxALL, 0);
@@ -1266,7 +1300,7 @@ public:
         });
         this->path_text_ctrl_->Bind(wxEVT_CHAR_HOOK, [&](wxKeyEvent &evt) {
             if (evt.GetModifiers() == 0 && evt.GetKeyCode() == WXK_ESCAPE && this->path_text_ctrl_->HasFocus()) {
-                this->path_text_ctrl_->SetValue(this->current_dir_);
+                this->path_text_ctrl_->SetValue(wxString::FromUTF8(this->current_dir_));
                 this->path_text_ctrl_->SelectNone();
                 this->dir_list_ctrl_->SetFocus();
                 return;
@@ -1292,7 +1326,7 @@ public:
                 auto path = normalize_path(this->current_dir_ + "/" + entry.name_);
                 if (entry.isDir_) {
                     this->current_dir_ = path;
-                    this->path_text_ctrl_->SetValue(path);
+                    this->path_text_ctrl_->SetValue(wxString::FromUTF8(path));
                     this->current_dir_list_.clear();
                     this->dir_list_ctrl_->Refresh(vector<DirEntry>{});
                     this->RefreshDir(path, false);
@@ -1336,9 +1370,11 @@ public:
                 this->sftp_thread_->join();
             }
 
+            // Clean up all files and directories we put there.
             for (auto o : this->opened_files_local_) {
-                remove(o.second.local_path);
+                remove(localPathUnicode(o.second.local_path));
             }
+            remove_all(localPathUnicode(this->local_tmp_));
 
             // Save frame position.
             int x, y, w, h;
@@ -1398,7 +1434,7 @@ private:
         // Sftp thread will trigger this callback if it requires a password for the connection.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
             wxEndBusyCursor();
-            auto s = "Enter password for " + this->username_ + "@" + this->host_ + ":" + to_string(this->port_);
+            auto s = "Enter password for " + this->conn_str_;
             auto passwd = wxGetPasswordFromUser(s, "Sftpgui", wxEmptyString, this);
             this->sftp_thread_channel_->Put(SftpThreadCmdPassword{passwd.ToStdString(wxMBConvUTF8())});
             if (!wxIsBusy()) {
@@ -1411,7 +1447,7 @@ private:
             auto r = event.GetPayload<SftpThreadResponseGetDir>();
             this->current_dir_list_ = r.dir_list;
             this->current_dir_ = r.dir;
-            this->path_text_ctrl_->SetValue(r.dir);
+            this->path_text_ctrl_->SetValue(wxString::FromUTF8(r.dir));
             this->SortAndPopulateDir();
             this->RecallSelected();
             if (this->latest_interesting_status_.empty()) {
@@ -1429,12 +1465,13 @@ private:
             // Is remote_path already a key in opened_files_local_?
             if (this->opened_files_local_.find(r.remote_path) != this->opened_files_local_.end()) {
                 // Previously downloaded, so just update the modified time.
-                this->opened_files_local_[r.remote_path].modified = last_write_time(r.local_path);
+
+                this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(r.local_path));
             } else {
                 OpenedFile f;
                 f.local_path = r.local_path;
                 f.remote_path = r.remote_path;
-                f.modified = last_write_time(r.local_path);
+                f.modified = last_write_time(localPathUnicode(r.local_path));
                 this->opened_files_local_[r.remote_path] = f;
             }
 
@@ -1452,7 +1489,7 @@ private:
 
             // TODO(allan): this doesnt catch if a file gets written again after the upload starts but before it completes
             auto local_path = this->opened_files_local_[r.remote_path].local_path;
-            this->opened_files_local_[r.remote_path].modified = last_write_time(local_path);
+            this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
             this->opened_files_local_[r.remote_path].upload_requested = false;
 
             string d = string(wxDateTime::Now().FormatISOCombined());
@@ -1501,7 +1538,7 @@ private:
             } else {
                 // User requested to ignore this upload failure.
                 auto local_path = this->opened_files_local_[r.remote_path].local_path;
-                this->opened_files_local_[r.remote_path].modified = last_write_time(local_path);
+                this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
                 this->opened_files_local_[r.remote_path].upload_requested = false;
                 this->SetStatusText(s);
                 wxEndBusyCursor();
@@ -1519,7 +1556,7 @@ private:
             } else {
                 // User requested to ignore this upload failure.
                 auto local_path = this->opened_files_local_[r.remote_path].local_path;
-                this->opened_files_local_[r.remote_path].modified = last_write_time(local_path);
+                this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
                 this->opened_files_local_[r.remote_path].upload_requested = false;
                 this->SetStatusText(s);
                 wxEndBusyCursor();
@@ -1537,7 +1574,7 @@ private:
             } else {
                 // User requested to ignore this upload failure.
                 auto local_path = this->opened_files_local_[r.remote_path].local_path;
-                this->opened_files_local_[r.remote_path].modified = last_write_time(local_path);
+                this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
                 this->opened_files_local_[r.remote_path].upload_requested = false;
                 this->SetStatusText(s);
                 wxEndBusyCursor();
@@ -1575,7 +1612,7 @@ private:
                 this->dir_list_ctrl_->Refresh(vector<DirEntry>{parent_dir_entry});
             }
 
-            auto s = wxString::FromUTF8("File or directory not found: " + r.remote_path);
+            auto s = wxString::FromUTF8("Directory not found: " + r.remote_path);
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxOK | wxICON_ERROR | wxCENTER);
             dialog.ShowModal();
             this->SetStatusText(s);
@@ -1627,7 +1664,8 @@ private:
     void OnFileWatcherTimer(const wxTimerEvent &event) {
         for (auto o : this->opened_files_local_) {
             OpenedFile f = o.second;
-            if (!f.upload_requested && last_write_time(f.local_path) > f.modified) {
+            auto local_path = f.local_path;
+            if (!f.upload_requested && last_write_time(localPathUnicode(local_path)) > f.modified) {
                 this->UploadWatchedFile(f.remote_path);
             }
         }
@@ -1734,13 +1772,11 @@ private:
         }
 
         remote_path = normalize_path(remote_path);
-        string local_tmp = string(wxStandardPaths::Get().GetTempDir());
-        string conn_str = this->username_ + "@" + this->host_ + "_" + to_string(this->port_);
-        string local_path = normalize_path(local_tmp + "/sftpgui/" + conn_str + "/" + remote_path);
+        string local_path = normalize_path(this->local_tmp_ + "/" + remote_path);
         string local_dir = normalize_path(local_path + "/..");
         // TODO(allan): restrict permissions
         // TODO(allan): handle local file creation error seperately from a connection errors
-        create_directories(local_dir);
+        create_directories(localPathUnicode(local_dir));
 
         this->sftp_thread_channel_->Put(SftpThreadCmdDownload{local_path, remote_path});
         if (!wxIsBusy()) {
