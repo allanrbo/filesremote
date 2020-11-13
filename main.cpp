@@ -1,19 +1,17 @@
 // Copyright 2020 Allan Riordan Boll
 
-#include <string>
-#include <vector>
-#include <unordered_set>
 #include <algorithm>
-#include <stdexcept>
-#include <memory>
-#include <filesystem>
-#include <sstream>
-#include <thread>
-#include <list>
-#include <mutex>
-#include <condition_variable>
 #include <any>
+#include <condition_variable>  // NOLINT
+#include <filesystem>
+#include <list>
 #include <map>
+#include <mutex> // NOLINT
+#include <sstream>
+#include <string>
+#include <thread> // NOLINT
+#include <unordered_set>
+#include <vector>
 
 #ifdef __WXMSW__
 
@@ -21,10 +19,10 @@
 
 #else
 
-#include <sys/socket.h>
-#include <unistd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #endif
 
@@ -36,47 +34,49 @@
 
 #include <stdio.h>
 
-#include <wx/wx.h>
-#include <wx/listctrl.h>
-#include <wx/imaglist.h>
-#include <wx/artprov.h>
-#include <wx/cmdline.h>
-#include <wx/utils.h>
-#include <wx/stdpaths.h>
-#include <wx/config.h>
-#include <wx/fileconf.h>
-#include <wx/preferences.h>
-#include <wx/dataview.h>
 #include <wx/aboutdlg.h>
-#include <wx/progdlg.h>
 #include <wx/activityindicator.h>
+#include <wx/artprov.h>
 #include <wx/busyinfo.h>
+#include <wx/cmdline.h>
+#include <wx/config.h>
+#include <wx/dataview.h>
+#include <wx/fileconf.h>
+#include <wx/imaglist.h>
+#include <wx/listctrl.h>
+#include <wx/preferences.h>
+#include <wx/progdlg.h>
+#include <wx/snglinst.h>
+#include <wx/stdpaths.h>
+#include <wx/utils.h>
+#include <wx/wx.h>
 
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 
 #include "./licensestrings.h"
 
-using std::string;
-using std::wstring;
-using std::to_string;
-using std::vector;
-using std::unordered_set;
 using std::copy;
-using std::unique_ptr;
-using std::shared_ptr;
-using std::stringstream;
-using std::make_unique;
-using std::make_shared;
-using std::filesystem::file_time_type;
+using std::exception;
 using std::filesystem::create_directories;
+using std::filesystem::exists;
+using std::filesystem::file_time_type;
+using std::filesystem::is_empty;
 using std::filesystem::last_write_time;
 using std::filesystem::remove;
 using std::filesystem::remove_all;
-using std::filesystem::exists;
-using std::exception;
-using std::thread;
+using std::make_shared;
+using std::make_unique;
 using std::map;
+using std::shared_ptr;
+using std::string;
+using std::stringstream;
+using std::thread;
+using std::to_string;
+using std::unique_ptr;
+using std::unordered_set;
+using std::vector;
+using std::wstring;
 
 #define BUFLEN 4096
 #define ID_SET_DIR 10
@@ -153,7 +153,9 @@ string normalize_path(string path) {
 
 
 #ifdef __WXMSW__
+
 wstring localPathUnicode(string local_path) { return wxString::FromUTF8(local_path).ToStdWstring(); }
+
 #else
 
 string localPathUnicode(string local_path) { return local_path; }
@@ -213,42 +215,46 @@ class DownloadFailed : public exception {
 public:
     string remote_path_;
 
-    DownloadFailed(string remote_path) : remote_path_(remote_path) {}
+    explicit DownloadFailed(string remote_path) : remote_path_(remote_path) {}
 };
+
 
 class DownloadFailedPermission : public exception {
 public:
     string remote_path_;
 
-    DownloadFailedPermission(string remote_path) : remote_path_(remote_path) {}
+    explicit DownloadFailedPermission(string remote_path) : remote_path_(remote_path) {}
 };
+
 
 class UploadFailed : public exception {
 public:
     string remote_path_;
 
-    UploadFailed(string remote_path) : remote_path_(remote_path) {}
+    explicit UploadFailed(string remote_path) : remote_path_(remote_path) {}
 };
+
 
 class UploadFailedPermission : public exception {
 public:
     string remote_path_;
 
-    UploadFailedPermission(string remote_path) : remote_path_(remote_path) {}
+    explicit UploadFailedPermission(string remote_path) : remote_path_(remote_path) {}
 };
 
 class UploadFailedSpace : public exception {
 public:
     string remote_path_;
 
-    UploadFailedSpace(string remote_path) : remote_path_(remote_path) {}
+    explicit UploadFailedSpace(string remote_path) : remote_path_(remote_path) {}
 };
+
 
 class DirListFailedPermission : public exception {
 public:
     string remote_path_;
 
-    DirListFailedPermission(string remote_path) : remote_path_(remote_path) {}
+    explicit DirListFailedPermission(string remote_path) : remote_path_(remote_path) {}
 };
 
 
@@ -256,7 +262,7 @@ class FileNotFound : public exception {
 public:
     string remote_path_;
 
-    FileNotFound(string remote_path) : remote_path_(remote_path) {}
+    explicit FileNotFound(string remote_path) : remote_path_(remote_path) {}
 };
 
 
@@ -264,7 +270,7 @@ class ConnectionError : public exception {
 public:
     string msg_;
 
-    ConnectionError(string msg) : msg_(msg) {}
+    explicit ConnectionError(string msg) : msg_(msg) {}
 };
 
 
@@ -273,7 +279,7 @@ class SftpHandle {
 public:
     LIBSSH2_SFTP_HANDLE *handle_;
 
-    SftpHandle(LIBSSH2_SFTP_HANDLE *handle) : handle_(handle) {}
+    explicit SftpHandle(LIBSSH2_SFTP_HANDLE *handle) : handle_(handle) {}
 
     ~SftpHandle() {
         if (this->handle_) {
@@ -288,7 +294,7 @@ class FileHandle {
 public:
     FILE *handle_;
 
-    FileHandle(FILE *handle) : handle_(handle) {}
+    explicit FileHandle(FILE *handle) : handle_(handle) {}
 
     ~FileHandle() {
         if (this->handle_) {
@@ -371,7 +377,7 @@ public:
         auto sftp_handle_ = SftpHandle(libssh2_sftp_opendir(this->sftp_session_, path.c_str()));
         if (!sftp_handle_.handle_) {
             if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
-                unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
+                uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
                 if (err == LIBSSH2_FX_PERMISSION_DENIED) {
                     throw DirListFailedPermission(path);
                 }
@@ -458,13 +464,13 @@ public:
 
     void DownloadFile(string remote_src_path, string local_dst_path) {
         auto sftp_handle_ = SftpHandle(libssh2_sftp_open(
-                this->sftp_session_,
-                remote_src_path.c_str(),
-                LIBSSH2_FXF_READ,
-                0));
+                                               this->sftp_session_,
+                                               remote_src_path.c_str(),
+                                               LIBSSH2_FXF_READ,
+                                               0));
         if (!sftp_handle_.handle_) {
             if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
-                unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
+                uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
                 if (err == LIBSSH2_FX_PERMISSION_DENIED || err == LIBSSH2_FX_WRITE_PROTECT) {
                     throw DownloadFailedPermission(remote_src_path);
                 }
@@ -499,13 +505,13 @@ public:
 
     void UploadFile(string local_src_path, string remote_dst_path) {
         auto sftp_openfile_handle_ = SftpHandle(libssh2_sftp_open(
-                this->sftp_session_,
-                remote_dst_path.c_str(),
-                LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC,
-                0));
+                                                        this->sftp_session_,
+                                                        remote_dst_path.c_str(),
+                                                        LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC,
+                                                        0));
         if (!sftp_openfile_handle_.handle_) {
             if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
-                unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
+                uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
                 if (err == LIBSSH2_FX_PERMISSION_DENIED || err == LIBSSH2_FX_WRITE_PROTECT) {
                     throw UploadFailedPermission(remote_dst_path);
                 }
@@ -534,7 +540,7 @@ public:
                     rc = libssh2_sftp_write(sftp_openfile_handle_.handle_, buf, rc);
                     if (rc < 0) {
                         if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
-                            unsigned long err = libssh2_sftp_last_error(this->sftp_session_);
+                            uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
                             if (err == LIBSSH2_FX_NO_SPACE_ON_FILESYSTEM) {
                                 throw UploadFailedSpace(remote_dst_path);
                             }
@@ -648,52 +654,64 @@ struct SftpThreadCmdConnect {
     int port;
 };
 
+
 struct SftpThreadCmdPassword {
     string password;
 };
+
 
 struct SftpThreadResponseConnected {
     string home_dir;
 };
 
+
 struct SftpThreadCmdShutdown {
 };
+
 
 struct SftpThreadCmdGetDir {
     string dir;
 };
+
 
 struct SftpThreadResponseGetDir {
     string dir;
     vector<DirEntry> dir_list;
 };
 
+
 struct SftpThreadResponseError {
     string error;
 };
 
+
 struct SftpThreadResponseFileError {
     string remote_path;
 };
+
 
 struct SftpThreadCmdUpload {
     string local_path;
     string remote_path;
 };
 
+
 struct SftpThreadResponseUpload {
     string remote_path;
 };
+
 
 struct SftpThreadCmdDownload {
     string local_path;
     string remote_path;
 };
 
+
 struct SftpThreadResponseDownload {
     string local_path;
     string remote_path;
 };
+
 
 template<typename T>
 void respondToUIThread(wxEvtHandler *response_dest, int id, const T &payload) {
@@ -702,10 +720,12 @@ void respondToUIThread(wxEvtHandler *response_dest, int id, const T &payload) {
     wxQueueEvent(response_dest, event.Clone());
 }
 
+
 void respondToUIThread(wxEvtHandler *response_dest, int id) {
     wxThreadEvent event(wxEVT_THREAD, id);
     wxQueueEvent(response_dest, event.Clone());
 }
+
 
 void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> channel) {
     unique_ptr<SftpConnection> sftp_connection;
@@ -802,8 +822,10 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> c
     }
 }
 
+
 typedef std::function<void(int)> OnItemActivatedCb;
 typedef std::function<void(int)> OnColumnHeaderClickCb;
+
 
 // A base class, because wxDataViewListCtrl looks best on MacOS, and wxListCtrl looks best on GTK and Windows.
 class DirListCtrl {
@@ -863,7 +885,7 @@ public:
         this->dvlc_ = new wxDataViewListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                              wxDV_MULTIPLE | wxDV_ROW_LINES);
 
-        // TODO(allan): wxDATAVIEW_CELL_EDITABLE?
+        // TODO(allan): wxDATAVIEW_CELL_EDITABLE for renaming files?
         this->dvlc_->AppendIconTextColumn("Name", wxDATAVIEW_CELL_INERT, 300);
         this->dvlc_->AppendTextColumn("Size", wxDATAVIEW_CELL_INERT, 100);
         this->dvlc_->AppendTextColumn("Modified", wxDATAVIEW_CELL_INERT, 150);
@@ -1085,6 +1107,7 @@ public:
     }
 };
 
+
 class PreferencesPageGeneral : public wxStockPreferencesPage {
     wxConfigBase *config;
 
@@ -1118,6 +1141,7 @@ string prettifySentence(string s) {
     return s;
 }
 
+
 class SftpguiFrame : public wxFrame {
     string username_;
     string host_;
@@ -1143,7 +1167,7 @@ class SftpguiFrame : public wxFrame {
     string latest_interesting_status_ = "";
 
 public:
-    SftpguiFrame(string username, string host, int port, wxConfigBase *config) : wxFrame(
+    SftpguiFrame(string username, string host, int port, wxConfigBase *config, string local_tmp) : wxFrame(
             NULL,
             wxID_ANY,
             wxT("Sftpgui"),
@@ -1155,10 +1179,9 @@ public:
         this->port_ = port;
         this->config_ = config;
 
-        // Create our tmp directory.
+        // Create sub tmp directory for this connection.
         this->conn_str_ = this->username_ + "@" + this->host_ + "_" + to_string(this->port_);
-        auto local_tmp = string(wxStandardPaths::Get().GetTempDir());
-        local_tmp = normalize_path(local_tmp + "/sftpgui/" + this->conn_str_);
+        local_tmp = normalize_path(local_tmp + "/" + this->conn_str_);
         this->local_tmp_ = local_tmp;
         for (int i = 2; exists(localPathUnicode(this->local_tmp_)); i++) {
             // If another instance is already open and using this path, then choose a different path.
@@ -1487,7 +1510,7 @@ private:
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
             auto r = event.GetPayload<SftpThreadResponseUpload>();
 
-            // TODO(allan): this doesnt catch if a file gets written again after the upload starts but before it completes
+            // TODO(allan): doesnt catch if a file gets written again after the upload starts but before it completes
             auto local_path = this->opened_files_local_[r.remote_path].local_path;
             this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
             this->opened_files_local_[r.remote_path].upload_requested = false;
@@ -1790,6 +1813,7 @@ class SftpguiApp : public wxApp {
     string host_;
     string username_;
     int port_ = 22;
+    unique_ptr<wxFrame> frame_;
 
 public:
     bool OnInit() {
@@ -1797,6 +1821,10 @@ public:
             if (!wxApp::OnInit())
                 return false;
 
+            // Create our tmp directory.
+            auto local_tmp = string(wxStandardPaths::Get().GetTempDir());
+            local_tmp = normalize_path(local_tmp + "/sftpgui_" + wxGetUserId().ToStdString());
+            create_directories(localPathUnicode(local_tmp));
 
             auto es = wxEmptyString;
             wxFileConfig *config = new wxFileConfig("sftpgui", es, es, es, wxCONFIG_USE_LOCAL_FILE);
@@ -1818,8 +1846,8 @@ public:
                 }
             }
 
-            wxFrame *frame = new SftpguiFrame(this->username_, this->host_, this->port_, config);
-            frame->Show();
+            this->frame_ = make_unique<SftpguiFrame>(this->username_, this->host_, this->port_, config, local_tmp);
+            this->frame_->Show();
         } catch (...) {
             showException();
             return false;
@@ -1856,6 +1884,7 @@ private:
         this->port_ = 22;
 
 #ifdef __WXMSW__
+        // Windows usually title-cases usernames, but the hosts we will likely be SSH'ing to are usually lower cased.
         transform(this->username_.begin(), this->username_.end(), this->username_.begin(), ::tolower);
 #endif
 

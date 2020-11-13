@@ -5,15 +5,18 @@ A no-nonsense SFTP file browser. Downloads and opens files in local editors and 
 
 Cross platform with fairly native feel (uses wxWidgets).
 
-Lint
-----
+Using
+----------
+
+
+Developing
+----------
+
+### Lint
 
     cpplint --linelength=120 --filter=-whitespace/indent main.cpp
 
-Linux build
------------
-
-Followed https://www.binarytides.com/install-wxwidgets-ubuntu/ .
+### Linux build
 
 Prereqs:
 
@@ -42,9 +45,7 @@ Compiling:
     g++ -std=c++17 main.cpp `../wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core` -I../libssh2/include/ ../libssh2/bin/src/libssh2.a -lcrypto -o sftpgui
 
 
-
-MacOS build
------------
+### MacOS build
 
 Prereqs:
 
@@ -70,11 +71,19 @@ Compiling:
     cp sftpgui Sftpgui.app/Contents/MacOS/
     cp icon/icon.icns Sftpgui.app/Contents/Resources/
 
-    rm -fr Sftpgui.app ; cp -R macos_bundle_template Sftpgui.app ; cp icon/icon.icns Sftpgui.app/Contents/Resources/ cp sftpgui Sftpgui.app/Contents/MacOS/
+    rm -fr /Applications/Sftpgui.app ; cp -r Sftpgui.app /Applications/Sftpgui.app
+
+    hdiutil create -srcfolder Sftpgui.app \
+      -volname Sftpgui \
+      -fs HFS+ -fsargs "-c c=64,a=16,e=16" \
+      -format UDZO -imagekey zlib-level=9 /tmp/Sftpgui.dmg
+    cp /tmp/Sftpgui.dmg .
+    rm /tmp/Sftpgui.dmg
+
+    alias sftpgui="open -a Sftpgui --args $@"
 
 
-Windows build
--------------
+### Windows build
 
 Use msys2 (not the old msys).
 
@@ -124,15 +133,8 @@ Compiling:
     # TODO use wincng instead of openssl... -lbcrypt -lcrypt32
 
 
+### TODO
 
-TODO
-====
-
- * UTF8 issue on windows with file download
- * UTF8 issue in error messages
- * Put all SSH stuff in separate thread, so UI never freezes. Maybe use wxThread. Use wxQueueEvent to wake up GUI thread from SSH thread.
- * Handle dropped connections
- * File not found error
  * Add a FilterAway method to Channel that can be used to remove events that superseed other events, such as when enqueuing a dir change and there are already enqueued dir changes, or when returning from a file download and there were other file requests in queue for the same file.
  * Second navigation that happened before the first navigation returned. Or third or fourth. Handle nicely.
  * Drag & drop file upload / download
@@ -153,6 +155,7 @@ TODO
  * Warn if thumbprint changed
  * What happens if we try to upload to a dir that has since been deleted...
  * More human friendly size numbers (KiB, MiB, etc.)
+ * potential unicode issue: unicode char in username (therefore temp dir) on windows
 
 Error conditions to test:
  * Bad DNS name while connecting.

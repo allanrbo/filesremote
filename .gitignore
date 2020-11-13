@@ -2,6 +2,7 @@
 /cmake-build-debug
 /sftpgui
 /Sftpgui.app
+/Sftpgui.dmg
 *.out
 *.o
 *.exe
