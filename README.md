@@ -1,9 +1,11 @@
 Sftpgui
 =======
 
-A no-nonsense SFTP file browser. Downloads and opens files in local editors and uploads when changes are detected.
+A no-nonsense SFTP file browser. Ability to download and open files in local editors, and automatically upload when changes are detected.
 
 Cross platform with fairly native feel (uses wxWidgets).
+
+A lot of inspiration for this tool came from WinSCP. In particular the ability to automatically download a file, open it in a local editor, and upload it when changes are detected I wasn't able to find a tool as elegant as WinSCP for Linux and MacOS. Therefore I built this tool.
 
 Using
 ----------
@@ -44,10 +46,15 @@ Compiling:
 
     g++ -std=c++17 main.cpp `../wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core` -I../libssh2/include/ ../libssh2/bin/src/libssh2.a -lcrypto -o sftpgui
 
+    # validating static linking
+    ldd sftpgui
+
 
 ### MacOS build
 
 Prereqs:
+
+    xcode-select --install
 
     curl -L -O https://github.com/wxWidgets/wxWidgets/releases/download/v3.1.4/wxWidgets-3.1.4.tar.bz2
     tar -v -xjf wxWidgets-3.1.4.tar.bz2
@@ -61,7 +68,10 @@ Prereqs:
 
 Compiling:
 
-    g++ -std=c++17 main.cpp `$HOME/dev/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core | sed "s/-ljpeg//g" | sed "s/-ltiff//g"` -lz /usr/local/lib/libssh2.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libssl.a -o sftpgui
+    g++ -mmacosx-version-min=10.14 -std=c++17 main.cpp -static `$HOME/dev/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core | sed "s/-ljpeg//g" | sed "s/-ltiff//g"` -lz /usr/local/lib/libssh2.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libssl.a -o sftpgui
+
+    # validating static linking
+    otool -L sftpgui
 
     rm -fr Sftpgui.app
     mkdir -p Sftpgui.app/Contents/MacOS/
@@ -134,6 +144,7 @@ Compiling:
 
 ### TODO
 
+ * MacOS C++ issue
  * Button for back and fwd.
  * Backspace should navigate back (keep stack of prev dirs).
  * Executable flags should give executable icon
