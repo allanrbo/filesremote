@@ -28,7 +28,7 @@
 
 #ifdef __WXGTK__
 
-#include "icon/icon_48x48.xpm"
+#include "graphics/appicon/icon_64x64.xpm"
 
 #endif
 
@@ -44,6 +44,7 @@
 #include <wx/fileconf.h>
 #include <wx/imaglist.h>
 #include <wx/listctrl.h>
+#include <wx/mstream.h>
 #include <wx/preferences.h>
 #include <wx/progdlg.h>
 #include <wx/snglinst.h>
@@ -55,6 +56,7 @@
 #include <libssh2_sftp.h>
 
 #include "./licensestrings.h"
+#include "./graphics/ui/ui_icons.h"
 
 using std::copy;
 using std::exception;
@@ -77,6 +79,9 @@ using std::unique_ptr;
 using std::unordered_set;
 using std::vector;
 using std::wstring;
+using std::tuple;
+using std::make_tuple;
+using std::get;
 
 #define BUFLEN 4096
 #define ID_SET_DIR 10
@@ -201,7 +206,7 @@ public:
     bool isDir_;
 
     string ModifiedFormatted() {
-        if (this->modified_ == 0) {
+        if (this->modified_ < 5) {
             return "";
         }
         auto t = wxDateTime((time_t) this->modified_);
@@ -823,7 +828,7 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> c
 }
 
 
-typedef std::function<void(int)> OnItemActivatedCb;
+typedef std::function<void(void)> OnItemActivatedCb;
 typedef std::function<void(int)> OnColumnHeaderClickCb;
 
 
@@ -843,12 +848,7 @@ protected:
     }
 
 public:
-    DirListCtrl() {
-        auto ap = wxArtProvider();
-        auto size = wxSize(16, 16);
-        this->icons_image_list_ = new wxImageList(size.GetWidth(), size.GetHeight(), false, 1);
-        this->icons_image_list_->Add(ap.GetBitmap(wxART_NORMAL_FILE, wxART_LIST, size));
-        this->icons_image_list_->Add(ap.GetBitmap(wxART_FOLDER, wxART_LIST, size));
+    explicit DirListCtrl(wxImageList *icons_image_list) : icons_image_list_(icons_image_list) {
     }
 
     virtual void Refresh(vector<DirEntry> entries) = 0;
@@ -881,24 +881,23 @@ class DvlcDirList : public DirListCtrl {
     wxDataViewListCtrl *dvlc_;
 
 public:
-    explicit DvlcDirList(wxWindow *parent) : DirListCtrl() {
+    explicit DvlcDirList(wxWindow *parent, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
         this->dvlc_ = new wxDataViewListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                              wxDV_MULTIPLE | wxDV_ROW_LINES);
 
         // TODO(allan): wxDATAVIEW_CELL_EDITABLE for renaming files?
-        this->dvlc_->AppendIconTextColumn("Name", wxDATAVIEW_CELL_INERT, 300);
-        this->dvlc_->AppendTextColumn("Size", wxDATAVIEW_CELL_INERT, 100);
-        this->dvlc_->AppendTextColumn("Modified", wxDATAVIEW_CELL_INERT, 150);
-        this->dvlc_->AppendTextColumn("Mode", wxDATAVIEW_CELL_INERT, 100);
-        this->dvlc_->AppendTextColumn("Owner", wxDATAVIEW_CELL_INERT, 100);
-        this->dvlc_->AppendTextColumn("Group", wxDATAVIEW_CELL_INERT, 100);
+        this->dvlc_->AppendIconTextColumn("  Name", wxDATAVIEW_CELL_INERT, 300);
+        this->dvlc_->AppendTextColumn(" Size", wxDATAVIEW_CELL_INERT, 100);
+        this->dvlc_->AppendTextColumn(" Modified", wxDATAVIEW_CELL_INERT, 150);
+        this->dvlc_->AppendTextColumn(" Mode", wxDATAVIEW_CELL_INERT, 100);
+        this->dvlc_->AppendTextColumn(" Owner", wxDATAVIEW_CELL_INERT, 100);
+        this->dvlc_->AppendTextColumn(" Group", wxDATAVIEW_CELL_INERT, 100);
 
         this->dvlc_->Bind(wxEVT_DATAVIEW_ITEM_ACTIVATED, [&](wxDataViewEvent &evt) {
             if (!evt.GetItem()) {
                 return;
             }
-            int i = this->dvlc_->GetItemData(evt.GetItem());
-            this->on_item_activated_cb_(i);
+            this->on_item_activated_cb_();
         });
 
         this->dvlc_->Bind(wxEVT_DATAVIEW_COLUMN_HEADER_CLICK, [&](wxDataViewEvent &evt) {
@@ -933,8 +932,7 @@ public:
 
     void ActivateCurrent() {
         if (this->dvlc_->GetCurrentItem()) {
-            int i = this->dvlc_->GetItemData(this->dvlc_->GetCurrentItem());
-            this->on_item_activated_cb_(i);
+            this->on_item_activated_cb_();
         }
     }
 
@@ -978,7 +976,7 @@ class LcDirList : public DirListCtrl {
     wxListCtrl *list_ctrl_;
 
 public:
-    explicit LcDirList(wxWindow *parent) : DirListCtrl() {
+    explicit LcDirList(wxWindow *parent, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
         this->list_ctrl_ = new wxListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT);
 
         this->list_ctrl_->AssignImageList(this->icons_image_list_, wxIMAGE_LIST_SMALL);
@@ -991,8 +989,7 @@ public:
         this->list_ctrl_->InsertColumn(5, "Owner", wxLIST_FORMAT_LEFT, 100);
 
         this->list_ctrl_->Bind(wxEVT_LIST_ITEM_ACTIVATED, [&](wxListEvent &evt) {
-            int i = this->list_ctrl_->GetItemData(evt.GetItem());
-            this->on_item_activated_cb_(i);
+            this->on_item_activated_cb_();
         });
 
         this->list_ctrl_->Bind(wxEVT_LIST_COL_CLICK, [&](wxListEvent &evt) {
@@ -1025,9 +1022,7 @@ public:
 
     void ActivateCurrent() {
         if (this->list_ctrl_->GetSelectedItemCount() > 0) {
-            int i = this->list_ctrl_->GetItemData(
-                    this->list_ctrl_->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_FOCUSED));
-            this->on_item_activated_cb_(i);
+            this->on_item_activated_cb_();
         }
     }
 
@@ -1178,10 +1173,11 @@ public:
         this->host_ = host;
         this->port_ = port;
         this->config_ = config;
+        this->conn_str_ = this->username_ + "@" + this->host_ + ":" + to_string(this->port_);
 
         // Create sub tmp directory for this connection.
-        this->conn_str_ = this->username_ + "@" + this->host_ + "_" + to_string(this->port_);
-        local_tmp = normalize_path(local_tmp + "/" + this->conn_str_);
+        auto conn_str_path = this->username_ + "@" + this->host_ + "_" + to_string(this->port_);
+        local_tmp = normalize_path(local_tmp + "/" + conn_str_path);
         this->local_tmp_ = local_tmp;
         for (int i = 2; exists(localPathUnicode(this->local_tmp_)); i++) {
             // If another instance is already open and using this path, then choose a different path.
@@ -1192,7 +1188,7 @@ public:
 #ifdef __WXMSW__
         this->SetIcon(wxIcon("aaaa"));
 #elif __WXGTK__
-        this->SetIcon(wxIcon(icon_48x48));
+        this->SetIcon(wxIcon(icon_64x64));
 #endif
 
         this->SetTitle("Sftpgui - " + this->conn_str_);
@@ -1267,7 +1263,7 @@ public:
             wxTextCtrl *licenses_text_ctrl = new wxTextCtrl(
                     licenses_frame,
                     wxID_ANY,
-                    wxString::FromAscii(licenses),
+                    wxString::FromUTF8(licenses),
                     wxDefaultPosition,
                     wxDefaultSize,
                     wxTE_MULTILINE | wxTE_READONLY | wxBORDER_NONE);
@@ -1303,21 +1299,106 @@ public:
         this->file_watcher_timer_.Bind(wxEVT_TIMER, &SftpguiFrame::OnFileWatcherTimer, this);
         this->file_watcher_timer_.Start(1000);
 
+
         // Main layout.
         auto *panel = new wxPanel(this);
         auto *sizer = new wxBoxSizer(wxVERTICAL);
         auto *sizer_inner_top = new wxBoxSizer(wxHORIZONTAL);
         sizer->Add(sizer_inner_top, 0, wxEXPAND | wxALL, 1);
 
+        // Create toolbar
+        wxToolBarBase *tool_bar = this->CreateToolBar(wxTB_DEFAULT_STYLE);
+        auto tool_bar_bmp_size = wxArtProvider::GetNativeSizeHint(wxART_TOOLBAR) * (1/this->GetContentScaleFactor());
+        tool_bar->SetToolBitmapSize(tool_bar_bmp_size);
+        auto size = tool_bar->GetToolBitmapSize();
+        size = size * this->GetContentScaleFactor();
+        tool_bar->AddTool(
+                ID_PARENT_DIR,
+                "Parent directory",
+                this->GetBitmap("_parent_dir", wxART_TOOLBAR, size),
+                wxNullBitmap,
+                wxITEM_NORMAL,
+                "Parent directory",
+                "Go to parent directory");
+//        tool_bar->AddTool(
+//                wxID_BACKWARD,
+//                "Back",
+//                this->GetBitmap("_nav_back", wxART_TOOLBAR, size),
+//                wxNullBitmap,
+//                wxITEM_NORMAL,
+//                "Back",
+//                "Go back a directory");
+//        tool_bar->AddTool(
+//                wxID_FORWARD,
+//                "Forward",
+//                this->GetBitmap("_nav_fwd", wxART_TOOLBAR, size),
+//                wxNullBitmap,
+//                wxITEM_NORMAL,
+//                "Forward",
+//                "Go forward a directory");
+        tool_bar->AddTool(
+                wxID_REFRESH,
+                "Refresh",
+                this->GetBitmap("_refresh", wxART_TOOLBAR, size),
+                wxNullBitmap,
+                wxITEM_NORMAL,
+                "Refresh",
+                "Refresh the current directory list");
+        tool_bar->AddTool(
+                wxID_OPEN,
+                "Open",
+                this->GetBitmap("_open_file", wxART_TOOLBAR, size),
+                wxNullBitmap,
+                wxITEM_NORMAL,
+                "Open",
+                "Open the selected file");
+//        tool_bar->AddTool(
+//                wxID_NEW,
+//                "New file",
+//                this->GetBitmap("_new_file", wxART_TOOLBAR, size),
+//                wxNullBitmap,
+//                wxITEM_NORMAL,
+//                "New file",
+//                "Create an empty file");
+//        tool_bar->AddTool(
+//                -1,
+//                "New directory",
+//                this->GetBitmap("_new_dir", wxART_TOOLBAR, size),
+//                wxNullBitmap,
+//                wxITEM_NORMAL,
+//                "New directory",
+//                "Create a new directory");
+//        tool_bar->AddTool(
+//                -1,
+//                "Rename",
+//                this->GetBitmap("_rename", wxART_TOOLBAR, size),
+//                wxNullBitmap,
+//                wxITEM_NORMAL,
+//                "Rename",
+//                "Rename currently selected file or directory");
+//        tool_bar->AddTool(
+//                wxID_DELETE,
+//                "Delete",
+//                this->GetBitmap("_delete", wxART_TOOLBAR, size),
+//                wxNullBitmap,
+//                wxITEM_NORMAL,
+//                "Delete",
+//                "Delete currently selected file or directory");
+        tool_bar->Realize();
+
+        this->Bind(wxEVT_TOOL, [&](wxCommandEvent &event) {
+            this->OnItemActivated();
+        }, wxID_OPEN);
+
         // Create remote path text field.
-        this->path_text_ctrl_ = new wxTextCtrl(panel, wxID_ANY, wxString::FromUTF8(this->current_dir_),
-                                               wxDefaultPosition,
-                                               wxDefaultSize, wxTE_PROCESS_ENTER);
-#ifdef __WXOSX__
-        sizer_inner_top->Add(this->path_text_ctrl_, 1, wxEXPAND | wxALL, 0);
-#else
+        this->path_text_ctrl_ = new wxTextCtrl(
+                panel,
+                wxID_ANY,
+                wxString::FromUTF8(this->current_dir_),
+                wxDefaultPosition,
+                wxDefaultSize,
+                wxTE_PROCESS_ENTER);
         sizer_inner_top->Add(this->path_text_ctrl_, 1, wxEXPAND | wxALL, 4);
-#endif
         this->path_text_ctrl_->Bind(wxEVT_TEXT_ENTER, [&](wxCommandEvent &event) {
             this->RefreshDir(this->path_text_ctrl_->GetValue().ToStdString(wxMBConvUTF8()), false);
         });
@@ -1332,33 +1413,23 @@ public:
             evt.Skip();
         });
 
+        auto icon_size = this->FromDIP(wxSize(16, 16));
+        auto icons_image_list = new wxImageList(icon_size.GetWidth(), icon_size.GetHeight(), false, 1);
+        icons_image_list->Add(this->GetBitmap(wxART_NORMAL_FILE, wxART_LIST, icon_size));
+        icons_image_list->Add(this->GetBitmap(wxART_FOLDER, wxART_LIST, icon_size));
+
 #ifdef __WXOSX__
         // On MacOS wxDataViewListCtrl looks best.
-        this->dir_list_ctrl_ = new DvlcDirList(panel);
+        this->dir_list_ctrl_ = new DvlcDirList(panel, icons_image_list);
 #else
         // On GTK and Windows wxListCtrl looks best.
-        this->dir_list_ctrl_ = new LcDirList(panel);
+        this->dir_list_ctrl_ = new LcDirList(panel, icons_image_list);
 #endif
         sizer->Add(this->dir_list_ctrl_->GetCtrl(), 1, wxEXPAND | wxALL, 0);
         this->dir_list_ctrl_->SetFocus();
 
-        this->dir_list_ctrl_->BindOnItemActivated([&](int n) {
-            string status = "";
-            try {
-                auto entry = this->current_dir_list_[n];
-                auto path = normalize_path(this->current_dir_ + "/" + entry.name_);
-                if (entry.isDir_) {
-                    this->current_dir_ = path;
-                    this->path_text_ctrl_->SetValue(wxString::FromUTF8(path));
-                    this->current_dir_list_.clear();
-                    this->dir_list_ctrl_->Refresh(vector<DirEntry>{});
-                    this->RefreshDir(path, false);
-                } else {
-                    this->DownloadFile(path);
-                }
-            } catch (...) {
-                showException();
-            }
+        this->dir_list_ctrl_->BindOnItemActivated([&](void) {
+            this->OnItemActivated();
         });
 
         this->dir_list_ctrl_->BindOnColumnHeaderClickCb([&](int col) {
@@ -1666,6 +1737,25 @@ private:
         }, ID_SFTP_THREAD_RESPONSE_ERROR);
     }
 
+    void OnItemActivated() {
+        try {
+            int item = this->dir_list_ctrl_->GetHighlighted();
+            auto entry = this->current_dir_list_[item];
+            auto path = normalize_path(this->current_dir_ + "/" + entry.name_);
+            if (entry.isDir_) {
+                this->current_dir_ = path;
+                this->path_text_ctrl_->SetValue(wxString::FromUTF8(path));
+                this->current_dir_list_.clear();
+                this->dir_list_ctrl_->Refresh(vector<DirEntry>{});
+                this->RefreshDir(path, false);
+            } else {
+                this->DownloadFile(path);
+            }
+        } catch (...) {
+            showException();
+        }
+    }
+
     void SetIdleStatusText() {
         string s = to_string(this->current_dir_list_.size()) + " items";
         if (!this->latest_interesting_status_.empty()) {
@@ -1806,6 +1896,84 @@ private:
             wxBeginBusyCursor();
         }
     }
+
+    // Wraps wxArtProvider::GetBitmap and sets the scale factor of the wxBitmap.
+    wxBitmap GetBitmap(const wxArtID &id, const wxArtClient &client, const wxSize &size) {
+        double scale_factor = this->GetContentScaleFactor();
+        auto bmp = wxArtProvider::GetBitmap(id, client, size * scale_factor);
+
+        // Scale factor on wxBitmaps doesn't seem to do anything on Win and MacOS, but it's needed on GTK.
+        return wxBitmap(bmp.ConvertToImage(), -1, scale_factor);
+    }
+};
+
+
+class ArtProvider : public wxArtProvider {
+    map<string, tuple<const unsigned char *, int>> art;
+
+public:
+    ArtProvider() {
+#define ADD_IMG(ART_ID, NAME) \
+        this->art[#ART_ID "_16_light_png"] = make_tuple(NAME##_16_light_png, WXSIZEOF(NAME##_16_light_png)); \
+        this->art[#ART_ID "_16_dark_png"] = make_tuple(NAME##_16_dark_png, WXSIZEOF(NAME##_16_dark_png)); \
+        this->art[#ART_ID "_24_light_png"] = make_tuple(NAME##_24_light_png, WXSIZEOF(NAME##_24_light_png)); \
+        this->art[#ART_ID "_24_dark_png"] = make_tuple(NAME##_24_dark_png, WXSIZEOF(NAME##_24_dark_png)); \
+        this->art[#ART_ID "_32_light_png"] = make_tuple(NAME##_32_light_png, WXSIZEOF(NAME##_32_light_png)); \
+        this->art[#ART_ID "_32_dark_png"] = make_tuple(NAME##_32_dark_png, WXSIZEOF(NAME##_32_dark_png)); \
+        this->art[#ART_ID "_48_light_png"] = make_tuple(NAME##_48_light_png, WXSIZEOF(NAME##_48_light_png)); \
+        this->art[#ART_ID "_48_dark_png"] = make_tuple(NAME##_48_dark_png, WXSIZEOF(NAME##_48_dark_png)); \
+        this->art[#ART_ID "_64_light_png"] = make_tuple(NAME##_64_light_png, WXSIZEOF(NAME##_64_light_png)); \
+        this->art[#ART_ID "_64_dark_png"] = make_tuple(NAME##_64_dark_png, WXSIZEOF(NAME##_64_dark_png));
+
+        ADD_IMG(_parent_dir, _parent_dir)
+        ADD_IMG(_nav_back, _nav_back)
+        ADD_IMG(_nav_fwd, _nav_fwd)
+        ADD_IMG(_refresh, _refresh)
+        ADD_IMG(_open_file, _open_file)
+        ADD_IMG(_new_file, _new_file)
+        ADD_IMG(_new_dir, _new_dir)
+        ADD_IMG(_rename, _rename)
+        ADD_IMG(_delete, _delete)
+        ADD_IMG(wxART_FOLDER, _directory)
+        ADD_IMG(wxART_NORMAL_FILE, _file)
+    }
+
+    virtual wxBitmap CreateBitmap(const wxArtID &id, const wxArtClient &client, const wxSize &size) {
+        string color = "light";
+        if (wxSystemSettings::GetAppearance().IsDark()) {
+            color = "dark";
+        }
+
+        auto id2 = string(id);
+        replace(id2.begin(), id2.end(), '-', '_');
+
+        int width = size.GetWidth();
+        if (width > 64) {
+            width = 64;
+        }
+        if (width < 16) {
+            width = 16;
+        }
+        string key;
+        while (1) {
+            key = id2 + "_" + to_string(width) + "_" + color + "_png";
+            if (this->art.find(key) != this->art.end()) {
+                break;  // We found a match.
+            }
+
+            width--;  // Try increasing decreasing find a smaller image if we didn't find an exact match.
+            if (width < 16) {
+                return wxNullBitmap;
+            }
+        }
+
+        auto t = this->art[key];
+        return wxBitmap::NewFromPNGData(get<0>(t), get<1>(t));
+    }
+
+    static void CleanUpProviders() {
+        wxArtProvider::CleanUpProviders();
+    }
 };
 
 
@@ -1813,13 +1981,14 @@ class SftpguiApp : public wxApp {
     string host_;
     string username_;
     int port_ = 22;
-    unique_ptr<wxFrame> frame_;
 
 public:
     bool OnInit() {
         try {
             if (!wxApp::OnInit())
                 return false;
+
+            wxInitAllImageHandlers();
 
             // Create our tmp directory.
             auto local_tmp = string(wxStandardPaths::Get().GetTempDir());
@@ -1846,8 +2015,16 @@ public:
                 }
             }
 
-            this->frame_ = make_unique<SftpguiFrame>(this->username_, this->host_, this->port_, config, local_tmp);
-            this->frame_->Show();
+#ifdef __WXOSX__
+            // The built-in art providers on wxMac don't have enough scaled versions and are therefore ugly...
+            ArtProvider::CleanUpProviders();
+#endif
+
+            wxArtProvider::PushBack(new ArtProvider);
+
+            // Note: wxWdigets takes care of deleting this at shutdown.
+            auto frame = new SftpguiFrame(this->username_, this->host_, this->port_, config, local_tmp);
+            frame->Show();
         } catch (...) {
             showException();
             return false;

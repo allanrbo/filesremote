@@ -69,7 +69,7 @@ Compiling:
     cp Info.plist Sftpgui.app/Contents/
     echo APPL???? > Sftpgui.app/Contents/PkgInfo
     cp sftpgui Sftpgui.app/Contents/MacOS/
-    cp icon/icon.icns Sftpgui.app/Contents/Resources/
+    cp graphics/appicon/icon.icns Sftpgui.app/Contents/Resources/
 
     rm -fr /Applications/Sftpgui.app ; cp -r Sftpgui.app /Applications/Sftpgui.app
 
@@ -124,38 +124,43 @@ Compiling:
     export PATH=/mingw64/bin:$PATH
 
     cd /z/dev/sftpgui
-    `$HOME/wxWidgets-3.1.4/wx-config --rescomp` resource.rc resource.o
+    `$HOME/wxWidgets-3.1.4/wx-config --rescomp` --define wxUSE_DPI_AWARE_MANIFEST=1 resource.rc resource.o
     g++ -std=c++17 main.cpp resource.o --static `$HOME/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs` -I$HOME/libssh2-1.9.0/include $HOME/libssh2-1.9.0/src/.libs/libssh2.a -lssl -lcrypto -lz -lws2_32 -o sftpgui.exe
 
-    # to get console output...
-    g++ -std=c++17 -mconsole -Wl,--subsystem,console main.cpp resource.o --static `$HOME/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs` -I$HOME/libssh2-1.9.0/include $HOME/libssh2-1.9.0/src/.libs/libssh2.a -lssl -lcrypto -lz -lws2_32 -mconsole -Wl,--subsystem,console -o sftpgui.exe
+    #  && cp sftpgui.exe /c/Users/Allan/Desktop/ && /c/Users/Allan/Desktop/sftpgui.exe orange
 
     # TODO use wincng instead of openssl... -lbcrypt -lcrypt32
 
 
 ### TODO
 
- * Add a FilterAway method to Channel that can be used to remove events that superseed other events, such as when enqueuing a dir change and there are already enqueued dir changes, or when returning from a file download and there were other file requests in queue for the same file.
- * Second navigation that happened before the first navigation returned. Or third or fourth. Handle nicely.
+ * Executable flags should give executable icon
+ * Fix the app icon in the about menu
+ * Show error message on incorrect password
+ * Button for parent dir, refresh, back.
+ * Sudo checkbox or button
  * Drag & drop file upload / download
- * Ctrl-c / ctrl-v
- * Clean up old files on startup
- * When a file path is pasted to the path bar, open the file directly and go to its directory.
  * Rename files
+ * Delete files
  * Create files
  * Create directories
+ * Ctrl-c / ctrl-v
+ * Backspace should navigate back (keep stack of prev dirs).
+ * Change dir or refresh when disconnected causes crash?
+ * Add a FilterAway method to Channel that can be used to remove events that superseed other events, such as when enqueuing a dir change and there are already enqueued dir changes, or when returning from a file download and there were other file requests in queue for the same file.
+ * Second navigation that happened before the first navigation returned. Or third or fourth. Handle nicely.
+ * When a file path is pasted to the path bar, open the file directly and go to its directory.
  * Change permissions
- * Sudo
  * Fully use cmake on all platforms
- * Split into files
+ * Split source code into files
  * Ensure use of unique_ptr everywhere possible, instead of raw pointers
  * A better host selection window. Get inspired by Finder's "Connect to Server" window.
  * Better control the config path. ".config/sftpgui"
- * Backspace should navigate back (keep stack of prev dirs).
  * Warn if thumbprint changed
  * What happens if we try to upload to a dir that has since been deleted...
  * More human friendly size numbers (KiB, MiB, etc.)
- * potential unicode issue: unicode char in username (therefore temp dir) on windows
+ * Potential unicode issue: unicode char in username (therefore temp dir) on windows
+ * Clean up old files on startup
 
 Error conditions to test:
  * Bad DNS name while connecting.
