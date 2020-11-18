@@ -135,8 +135,7 @@ Compiling:
 ### TODO
 
  * Executable flags should give executable icon
- * Fix the app icon in the about menu
- * Button for parent dir, refresh, back.
+ * Button for back and fwd.
  * Sudo checkbox or button
  * Drag & drop file upload / download
  * Rename files

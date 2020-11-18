@@ -26,12 +26,6 @@
 
 #endif
 
-#ifdef __WXGTK__
-
-#include "graphics/appicon/icon_64x64.xpm"
-
-#endif
-
 #include <stdio.h>
 
 #include <wx/aboutdlg.h>
@@ -57,6 +51,7 @@
 
 #include "./licensestrings.h"
 #include "./graphics/ui/ui_icons.h"
+#include "./graphics/appicon/icon_64x64.xpm"
 
 using std::copy;
 using std::exception;
@@ -1187,7 +1182,7 @@ public:
 
 #ifdef __WXMSW__
         this->SetIcon(wxIcon("aaaa"));
-#elif __WXGTK__
+#else
         this->SetIcon(wxIcon(icon_64x64));
 #endif
 
@@ -1276,6 +1271,11 @@ public:
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
             wxAboutDialogInfo info;
             info.SetName("Sftpgui");
+            auto icon = this->GetIcon();
+            if (!icon.IsOk()) {
+                icon = wxIcon(icon_64x64);
+            }
+            info.SetIcon(icon);
             info.SetVersion("0.1");
             info.SetDescription("A no-nonsense SFTP file browser");
             info.SetCopyright("(C) 2020 Allan Riordan Boll");
