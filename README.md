@@ -136,7 +136,6 @@ Compiling:
 
  * Executable flags should give executable icon
  * Fix the app icon in the about menu
- * Show error message on incorrect password
  * Button for parent dir, refresh, back.
  * Sudo checkbox or button
  * Drag & drop file upload / download

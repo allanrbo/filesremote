@@ -1733,6 +1733,7 @@ private:
             auto r = event.GetPayload<SftpThreadResponseError>();
             auto s = wxString::FromUTF8(prettifySentence(r.error));
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxOK | wxICON_ERROR | wxCENTER);
+            dialog.ShowModal();
             this->Close();
         }, ID_SFTP_THREAD_RESPONSE_ERROR);
     }
