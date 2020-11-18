@@ -55,14 +55,11 @@
 
 using std::copy;
 using std::exception;
-using std::filesystem::create_directories;
-using std::filesystem::exists;
 using std::filesystem::file_time_type;
 using std::filesystem::is_empty;
-using std::filesystem::last_write_time;
-using std::filesystem::remove;
-using std::filesystem::remove_all;
+using std::get;
 using std::make_shared;
+using std::make_tuple;
 using std::make_unique;
 using std::map;
 using std::shared_ptr;
@@ -70,13 +67,38 @@ using std::string;
 using std::stringstream;
 using std::thread;
 using std::to_string;
+using std::tuple;
 using std::unique_ptr;
 using std::unordered_set;
 using std::vector;
 using std::wstring;
-using std::tuple;
-using std::make_tuple;
-using std::get;
+
+//#ifndef __WXOSX__
+using std::filesystem::create_directories;
+using std::filesystem::exists;
+using std::filesystem::last_write_time;
+using std::filesystem::remove;
+using std::filesystem::remove_all;
+//#else
+//// Polyfills for these funcs that got introduced only in MacOS 10.15.
+//void create_directories(string path) {
+//}
+//
+//bool exists(string path) {
+//    return false;
+//}
+//
+//file_time_type last_write_time(string path) {
+//    return file_time_type();
+//}
+//
+//void remove(string path) {
+//}
+//
+//void remove_all(string path) {
+//}
+//#endif
+
 
 #define BUFLEN 4096
 #define ID_SET_DIR 10
