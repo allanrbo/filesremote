@@ -1459,6 +1459,10 @@ public:
         this->Bind(wxEVT_CLOSE_WINDOW, [&](wxCloseEvent &event) {
             this->SetStatusText("Disconnecting...");
 
+            if (!wxIsBusy()) {
+                wxBeginBusyCursor();
+            }
+
             if (this->sftp_thread_channel_) {
                 this->sftp_thread_channel_->Put(SftpThreadCmdShutdown{});
                 this->sftp_thread_->join();
@@ -1511,6 +1515,7 @@ private:
     void SetupSftpThreadCallbacks() {
         // Sftp thread will trigger this callback after successfully connecting.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseConnected>();
             if (this->current_dir_ == "") {
                 this->current_dir_ = r.home_dir;
@@ -1528,6 +1533,7 @@ private:
         // Sftp thread will trigger this callback if it requires a password for the connection.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
             wxEndBusyCursor();
+            this->RequestUserAttention(wxUSER_ATTENTION_INFO);
             auto s = "Enter password for " + this->conn_str_;
             auto passwd = wxGetPasswordFromUser(s, "Sftpgui", wxEmptyString, this);
             this->sftp_thread_channel_->Put(SftpThreadCmdPassword{passwd.ToStdString(wxMBConvUTF8())});
@@ -1538,6 +1544,7 @@ private:
 
         // Sftp thread will trigger this callback after successfully getting a directory list.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseGetDir>();
             this->current_dir_list_ = r.dir_list;
             this->current_dir_ = r.dir;
@@ -1549,11 +1556,11 @@ private:
                 this->latest_interesting_status_ = "Refreshed dir list at " + d + ".";
             }
             this->SetIdleStatusText();
-            wxEndBusyCursor();
         }, ID_SFTP_THREAD_RESPONSE_GET_DIR);
 
         // Sftp thread will trigger this callback after successfully downloading a file.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseDownload>();
 
             // Is remote_path already a key in opened_files_local_?
@@ -1579,6 +1586,7 @@ private:
 
         // Sftp thread will trigger this callback after successfully uploading a file.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseUpload>();
 
             // TODO(allan): doesnt catch if a file gets written again after the upload starts but before it completes
@@ -1593,6 +1601,7 @@ private:
 
         // Sftp thread will trigger this callback on general errors while downloading a file.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseFileError>();
             auto s = wxString::FromUTF8("Failed to download " + r.remote_path);
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxYES_NO | wxICON_ERROR | wxCENTER);
@@ -1602,12 +1611,12 @@ private:
             } else {
                 // User requested to ignore this download failure.
                 this->SetStatusText(s);
-                wxEndBusyCursor();
             }
         }, ID_SFTP_THREAD_RESPONSE_DOWNLOAD_FAILED);
 
         // Sftp thread will trigger this callback on permission errors while downloading a file.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseFileError>();
             auto s = wxString::FromUTF8("Permission denied when downloading " + r.remote_path);
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxYES_NO | wxICON_ERROR | wxCENTER);
@@ -1617,12 +1626,12 @@ private:
             } else {
                 // User requested to ignore this download failure.
                 this->SetStatusText(s);
-                wxEndBusyCursor();
             }
         }, ID_SFTP_THREAD_RESPONSE_DOWNLOAD_FAILED_PERMISSION);
 
         // Sftp thread will trigger this callback on general errors while uploading a file.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseFileError>();
             auto s = wxString::FromUTF8("Failed to upload " + r.remote_path);
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxYES_NO | wxICON_ERROR | wxCENTER);
@@ -1635,12 +1644,12 @@ private:
                 this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
                 this->opened_files_local_[r.remote_path].upload_requested = false;
                 this->SetStatusText(s);
-                wxEndBusyCursor();
             }
         }, ID_SFTP_THREAD_RESPONSE_UPLOAD_FAILED);
 
         // Sftp thread will trigger this callback on permission errors while uploading a file.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseFileError>();
             auto s = wxString::FromUTF8("Permission denied when uploading " + r.remote_path);
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxYES_NO | wxICON_ERROR | wxCENTER);
@@ -1653,12 +1662,12 @@ private:
                 this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
                 this->opened_files_local_[r.remote_path].upload_requested = false;
                 this->SetStatusText(s);
-                wxEndBusyCursor();
             }
         }, ID_SFTP_THREAD_RESPONSE_UPLOAD_FAILED_PERMISSION);
 
         // Sftp thread will trigger this callback on disk space errors while uploading a file.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseFileError>();
             auto s = wxString::FromUTF8("Insufficient disk space failure while uploading " + r.remote_path);
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxYES_NO | wxICON_ERROR | wxCENTER);
@@ -1671,12 +1680,12 @@ private:
                 this->opened_files_local_[r.remote_path].modified = last_write_time(localPathUnicode(local_path));
                 this->opened_files_local_[r.remote_path].upload_requested = false;
                 this->SetStatusText(s);
-                wxEndBusyCursor();
             }
         }, ID_SFTP_THREAD_RESPONSE_UPLOAD_FAILED_SPACE);
 
         // Sftp thread will trigger this callback on disk space errors while listing a directory.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseFileError>();
 
             // Make a dummy parent dir entry to make it easy to get back to the parent dir.
@@ -1691,11 +1700,11 @@ private:
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxOK | wxICON_ERROR | wxCENTER);
             dialog.ShowModal();
             this->SetStatusText(s);
-            wxEndBusyCursor();
         }, ID_SFTP_THREAD_RESPONSE_DIR_LIST_FAILED);
 
         // Sftp thread will trigger this callback when a file or directory was not found.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseFileError>();
 
             // Make a dummy parent dir entry to make it easy to get back to the parent dir.
@@ -1710,17 +1719,17 @@ private:
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxOK | wxICON_ERROR | wxCENTER);
             dialog.ShowModal();
             this->SetStatusText(s);
-            wxEndBusyCursor();
         }, ID_SFTP_THREAD_RESPONSE_FILE_NOT_FOUND);
 
         // Sftp thread will trigger this callback on an error that requires us to reconnect.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
-            this->RequestUserAttention(wxUSER_ATTENTION_ERROR);
-            auto r = event.GetPayload<SftpThreadResponseError>();
-            auto error = prettifySentence(r.error);
             if (!wxIsBusy()) {
                 wxBeginBusyCursor();
             }
+
+            this->RequestUserAttention(wxUSER_ATTENTION_ERROR);
+            auto r = event.GetPayload<SftpThreadResponseError>();
+            auto error = prettifySentence(r.error);
 
             this->reconnect_timer_error_ = error;
             this->SetStatusText(wxString::FromUTF8(error + " Reconnecting in 5 seconds..."));
@@ -1730,6 +1739,7 @@ private:
 
         // Sftp thread will trigger this callback on general errors.
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+            wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseError>();
             auto s = wxString::FromUTF8(prettifySentence(r.error));
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxOK | wxICON_ERROR | wxCENTER);
@@ -1739,6 +1749,10 @@ private:
     }
 
     void OnItemActivated() {
+        if (wxIsBusy()) {
+            return;
+        }
+
         try {
             int item = this->dir_list_ctrl_->GetHighlighted();
             auto entry = this->current_dir_list_[item];
@@ -1812,12 +1826,13 @@ private:
     void RefreshDir(string remote_path, bool preserve_selection) {
         if (!wxIsBusy()) {
             wxBeginBusyCursor();
+        } else {
+            return;
         }
 
         this->SetStatusText("Retrieving directory list...");
 
         if (preserve_selection) {
-            // TODO(allan): what if another RefreshDir happens before the current one is complete?
             this->RememberSelected();
         } else {
             this->stored_selected_.clear();

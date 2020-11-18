@@ -134,8 +134,10 @@ Compiling:
 
 ### TODO
 
- * Executable flags should give executable icon
  * Button for back and fwd.
+ * Backspace should navigate back (keep stack of prev dirs).
+ * Executable flags should give executable icon
+ * Symlink icon
  * Sudo checkbox or button
  * Drag & drop file upload / download
  * Rename files
@@ -143,10 +145,6 @@ Compiling:
  * Create files
  * Create directories
  * Ctrl-c / ctrl-v
- * Backspace should navigate back (keep stack of prev dirs).
- * Change dir or refresh when disconnected causes crash?
- * Add a FilterAway method to Channel that can be used to remove events that superseed other events, such as when enqueuing a dir change and there are already enqueued dir changes, or when returning from a file download and there were other file requests in queue for the same file.
- * Second navigation that happened before the first navigation returned. Or third or fourth. Handle nicely.
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
  * Change permissions
  * Fully use cmake on all platforms
@@ -154,6 +152,7 @@ Compiling:
  * Ensure use of unique_ptr everywhere possible, instead of raw pointers
  * A better host selection window. Get inspired by Finder's "Connect to Server" window.
  * Better control the config path. ".config/sftpgui"
+ * Better control the config path on windows. If a sftpgui.conf file exists in same dir, then use it.
  * Warn if thumbprint changed
  * What happens if we try to upload to a dir that has since been deleted...
  * More human friendly size numbers (KiB, MiB, etc.)
