@@ -7,8 +7,20 @@ Cross platform with fairly native feel (uses wxWidgets).
 
 A lot of inspiration for this tool came from WinSCP. In particular the ability to automatically download a file, open it in a local editor, and upload it when changes are detected I wasn't able to find a tool as elegant as WinSCP for Linux and MacOS. Therefore I built this tool.
 
+
 Using
 ----------
+
+### MacOS specific
+
+Go to File -> Preferences and set up the path of your text editor. For example for Sublime Text on MacOS this could be:
+
+    /Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl
+
+Optionally make aliases
+
+    alias sftpgui="open -a Sftpgui --args $@"
+    alias sftpgui_myserver="sftpgui user1@192.168.1.60"
 
 
 Developing
@@ -52,23 +64,50 @@ Compiling:
 
 ### MacOS build
 
+Built on MacOS 10.14 with the -mmacosx-version-min=10.13 flag. This way it runs on 10.13, and yet still has the dark mode features of 10.14.
+
 Prereqs:
 
     xcode-select --install
 
+    # WxWidgets
     curl -L -O https://github.com/wxWidgets/wxWidgets/releases/download/v3.1.4/wxWidgets-3.1.4.tar.bz2
     tar -v -xjf wxWidgets-3.1.4.tar.bz2
     cd wxWidgets-3.1.4/
-    ./configure --disable-shared --enable-unicode --without-libjpeg --without-libtiff --with-macosx-version-min=10.12
+    ./configure --disable-shared --enable-unicode --without-libjpeg --without-libtiff --with-macosx-version-min=10.13
+    make -j4
 
-    brew install wxmac --build-from-source
+    # OpenSSL
+    curl -L -O https://www.openssl.org/source/openssl-1.1.1h.tar.gz
+    tar -xzf openssl-1.1.1h.tar.gz
+    cd openssl-1.1.1h
+    export CFLAGS=-mmacosx-version-min=10.13
+    export CXXFLAGS=-mmacosx-version-min=10.13
+    export LDFLAGS=-mmacosx-version-min=10.13
+    ./config
+    make -j4
 
-    brew install libssh2
+    # Manually download and install a cmake binary dmg from cmake.org.
+    sudo mkdir -p /usr/local/bin
+    sudo /Applications/CMake.app/Contents/bin/cmake-gui --install=/usr/local/bin
+
+    # Libssh2
+    cd $HOME/dev
+    git clone https://github.com/libssh2/libssh2.git
+    cd libssh2
+    mkdir build
+    cd build
+    export OPENSSL_ROOT_DIR=$HOME/dev/openssl-1.1.1h
+    export CFLAGS=-mmacosx-version-min=10.13
+    export CXXFLAGS=-mmacosx-version-min=10.13
+    export LDFLAGS=-mmacosx-version-min=10.13
+    cmake ..
+    cmake --build . --target libssh2
 
 
 Compiling:
 
-    g++ -mmacosx-version-min=10.14 -std=c++17 main.cpp -static `$HOME/dev/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core | sed "s/-ljpeg//g" | sed "s/-ltiff//g"` -lz /usr/local/lib/libssh2.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libcrypto.a /usr/local/Cellar/openssl@1.1/1.1.1h/lib/libssl.a -o sftpgui
+    g++ -mmacosx-version-min=10.13 -std=c++17 main.cpp `$HOME/dev/wxWidgets-3.1.4/wx-config --static=yes --cxxflags --libs core` -I$HOME/dev/libssh2/include/ -lz $HOME/dev/libssh2/build/src/libssh2.a $HOME/dev/openssl-1.1.1h/libcrypto.a $HOME/dev/openssl-1.1.1h/libssl.a -o sftpgui
 
     # validating static linking
     otool -L sftpgui
@@ -90,7 +129,7 @@ Compiling:
     cp /tmp/Sftpgui.dmg .
     rm /tmp/Sftpgui.dmg
 
-    alias sftpgui="open -a Sftpgui --args $@"
+Troubleshooting "Killed: 9" error when starting binary on different machine: Possibly something with the kernel having cached the binary, and detecting a mismatch. Try reboot, or use a different output binary name in the -o parameter.
 
 
 ### Windows build
@@ -144,8 +183,7 @@ Compiling:
 
 ### TODO
 
- * MacOS C++ issue
- * Button for back and fwd.
+ * Move back/fwd/parent to a Go menu instead of File menu.
  * Backspace should navigate back (keep stack of prev dirs).
  * Executable flags should give executable icon
  * Symlink icon

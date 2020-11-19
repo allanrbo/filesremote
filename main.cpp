@@ -1,7 +1,6 @@
 // Copyright 2020 Allan Riordan Boll
 
 #include <algorithm>
-#include <any>
 #include <condition_variable>  // NOLINT
 #include <list>
 #include <map>
@@ -11,6 +10,7 @@
 #include <string>
 #include <thread> // NOLINT
 #include <unordered_set>
+#include <variant>
 #include <vector>
 
 
@@ -60,11 +60,10 @@
 #include "./graphics/ui/ui_icons.h"
 #include "./graphics/appicon/icon_64x64.xpm"
 
-using std::any;
-using std::any_cast;
 using std::copy;
 using std::exception;
 using std::get;
+using std::get_if;
 using std::make_shared;
 using std::make_tuple;
 using std::make_unique;
@@ -78,14 +77,15 @@ using std::to_string;
 using std::tuple;
 using std::unique_ptr;
 using std::unordered_set;
+using std::variant;
 using std::vector;
 using std::wstring;
 
 #ifndef __WXOSX__
-using std::filesystem::file_time_type;
-using std::filesystem::is_empty;
 using std::filesystem::create_directories;
 using std::filesystem::exists;
+using std::filesystem::file_time_type;
+using std::filesystem::is_empty;
 using std::filesystem::last_write_time;
 using std::filesystem::remove;
 using std::filesystem::remove_all;
@@ -94,21 +94,39 @@ using std::filesystem::remove_all;
 
 typedef unsigned long file_time_type;
 
-void create_directories(string path) {
-}
-
 bool exists(string path) {
-    return false;
+    struct stat sb;
+    return stat(path.c_str(), &sb) == 0;
 }
 
+void create_directories(string path) {
+    string cur = "";
+    stringstream s(path);
+    string segment;
+    while (getline(s, segment, '/')) {
+        if (segment.empty()) {
+            continue;
+        }
+        cur += "/" + segment;
+        if (!exists(cur)) {
+            mkdir(cur.c_str(), 0700);
+        }
+    }
+}
+
+#include <sys/stat.h>
 file_time_type last_write_time(string path) {
-    return file_time_type();
+    struct stat attr;
+    stat(path.c_str(), &attr);
+    return attr.st_mtime;
 }
 
 void remove(string path) {
+    remove(path.c_str());
 }
 
 void remove_all(string path) {
+    wxExecute(wxString::FromUTF8("rm -fr \"" + path + "\""), wxEXEC_SYNC);
 }
 #endif
 
@@ -762,21 +780,31 @@ void respondToUIThread(wxEvtHandler *response_dest, int id) {
 }
 
 
-void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<any>> channel) {
+// It would be much more elegant to use std::any, but it is unavailable in MacOS 10.13.
+typedef variant<
+SftpThreadCmdShutdown,
+SftpThreadCmdConnect,
+SftpThreadCmdPassword,
+SftpThreadCmdGetDir,
+SftpThreadCmdDownload,
+SftpThreadCmdUpload
+> threadFuncVariant;
+
+void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<threadFuncVariant>> channel) {
     unique_ptr<SftpConnection> sftp_connection;
 
     while (1) {
         auto msg = channel->Get();
 
         try {
-            if (msg.type() == typeid(SftpThreadCmdShutdown)) {
+            if (get_if<SftpThreadCmdShutdown>(&msg)) {
                 return;  // Destructor of sftp_connection will be called.
             }
 
-            if (msg.type() == typeid(SftpThreadCmdConnect)) {
-                auto m = any_cast<SftpThreadCmdConnect>(msg);
+            if (get_if<SftpThreadCmdConnect>(&msg)) {
+                auto m = get_if<SftpThreadCmdConnect>(&msg);
 
-                sftp_connection = make_unique<SftpConnection>(m.username, m.host, m.port);
+                sftp_connection = make_unique<SftpConnection>(m->username, m->host, m->port);
 
                 if (!sftp_connection->AgentAuth()) {
                     respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_NEED_PASSWD);
@@ -788,9 +816,9 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<any>> channe
                 continue;
             }
 
-            if (msg.type() == typeid(SftpThreadCmdPassword)) {
-                auto m = any_cast<SftpThreadCmdPassword>(msg);
-                if (!sftp_connection->PasswordAuth(m.password)) {
+            if (get_if<SftpThreadCmdPassword>(&msg)) {
+                auto m = get_if<SftpThreadCmdPassword>(&msg);
+                if (!sftp_connection->PasswordAuth(m->password)) {
                     respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_ERROR,
                                       SftpThreadResponseError{"Failed to authenticate."});
                     continue;
@@ -801,29 +829,29 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<any>> channe
                 continue;
             }
 
-            if (msg.type() == typeid(SftpThreadCmdGetDir)) {
-                auto m = any_cast<SftpThreadCmdGetDir>(msg);
+            if (get_if<SftpThreadCmdGetDir>(&msg)) {
+                auto m = get_if<SftpThreadCmdGetDir>(&msg);
                 SftpThreadResponseGetDir resp;
-                resp.dir_list = sftp_connection->GetDir(m.dir);
-                resp.dir = m.dir;
+                resp.dir_list = sftp_connection->GetDir(m->dir);
+                resp.dir = m->dir;
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_GET_DIR, resp);
                 continue;
             }
 
-            if (msg.type() == typeid(SftpThreadCmdDownload)) {
-                auto m = any_cast<SftpThreadCmdDownload>(msg);
-                sftp_connection->DownloadFile(m.remote_path, m.local_path);
+            if (get_if<SftpThreadCmdDownload>(&msg)) {
+                auto m = get_if<SftpThreadCmdDownload>(&msg);
+                sftp_connection->DownloadFile(m->remote_path, m->local_path);
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_DOWNLOAD,
-                                  SftpThreadResponseDownload{m.local_path, m.remote_path});
+                                  SftpThreadResponseDownload{m->local_path, m->remote_path});
                 // TODO(allan): catch connection failure exceptions and re-enqueue SftpThreadCmdDownload?
                 continue;
             }
 
-            if (msg.type() == typeid(SftpThreadCmdUpload)) {
-                auto m = any_cast<SftpThreadCmdUpload>(msg);
-                sftp_connection->UploadFile(m.local_path, m.remote_path);
+            if (get_if<SftpThreadCmdUpload>(&msg)) {
+                auto m = get_if<SftpThreadCmdUpload>(&msg);
+                sftp_connection->UploadFile(m->local_path, m->remote_path);
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_UPLOAD,
-                                  SftpThreadResponseUpload{m.remote_path});
+                                  SftpThreadResponseUpload{m->remote_path});
                 continue;
             }
         } catch (DownloadFailed e) {
@@ -1188,7 +1216,7 @@ class SftpguiFrame : public wxFrame {
     string stored_highlighted_ = "";
     unordered_set<string> stored_selected_;
     unique_ptr<thread> sftp_thread_;
-    shared_ptr<Channel<any>> sftp_thread_channel_ = make_shared<Channel<any>>();
+    shared_ptr<Channel<threadFuncVariant>> sftp_thread_channel_ = make_shared<Channel<threadFuncVariant>>();
     wxTimer reconnect_timer_;
     int reconnect_timer_countdown_;
     string reconnect_timer_error_ = "";
