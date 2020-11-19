@@ -3,15 +3,22 @@
 #include <algorithm>
 #include <any>
 #include <condition_variable>  // NOLINT
-#include <filesystem>
 #include <list>
 #include <map>
 #include <mutex> // NOLINT
 #include <sstream>
+#include <stack>
 #include <string>
 #include <thread> // NOLINT
 #include <unordered_set>
 #include <vector>
+
+
+#ifndef __WXOSX__
+
+#include <filesystem>
+
+#endif
 
 #ifdef __WXMSW__
 
@@ -53,16 +60,17 @@
 #include "./graphics/ui/ui_icons.h"
 #include "./graphics/appicon/icon_64x64.xpm"
 
+using std::any;
+using std::any_cast;
 using std::copy;
 using std::exception;
-using std::filesystem::file_time_type;
-using std::filesystem::is_empty;
 using std::get;
 using std::make_shared;
 using std::make_tuple;
 using std::make_unique;
 using std::map;
 using std::shared_ptr;
+using std::stack;
 using std::string;
 using std::stringstream;
 using std::thread;
@@ -73,31 +81,36 @@ using std::unordered_set;
 using std::vector;
 using std::wstring;
 
-//#ifndef __WXOSX__
+#ifndef __WXOSX__
+using std::filesystem::file_time_type;
+using std::filesystem::is_empty;
 using std::filesystem::create_directories;
 using std::filesystem::exists;
 using std::filesystem::last_write_time;
 using std::filesystem::remove;
 using std::filesystem::remove_all;
-//#else
-//// Polyfills for these funcs that got introduced only in MacOS 10.15.
-//void create_directories(string path) {
-//}
-//
-//bool exists(string path) {
-//    return false;
-//}
-//
-//file_time_type last_write_time(string path) {
-//    return file_time_type();
-//}
-//
-//void remove(string path) {
-//}
-//
-//void remove_all(string path) {
-//}
-//#endif
+#else
+// Polyfills for these funcs that got introduced only in MacOS 10.15.
+
+typedef unsigned long file_time_type;
+
+void create_directories(string path) {
+}
+
+bool exists(string path) {
+    return false;
+}
+
+file_time_type last_write_time(string path) {
+    return file_time_type();
+}
+
+void remove(string path) {
+}
+
+void remove_all(string path) {
+}
+#endif
 
 
 #define BUFLEN 4096
@@ -749,7 +762,7 @@ void respondToUIThread(wxEvtHandler *response_dest, int id) {
 }
 
 
-void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> channel) {
+void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<any>> channel) {
     unique_ptr<SftpConnection> sftp_connection;
 
     while (1) {
@@ -761,7 +774,7 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> c
             }
 
             if (msg.type() == typeid(SftpThreadCmdConnect)) {
-                auto m = std::any_cast<SftpThreadCmdConnect>(msg);
+                auto m = any_cast<SftpThreadCmdConnect>(msg);
 
                 sftp_connection = make_unique<SftpConnection>(m.username, m.host, m.port);
 
@@ -776,7 +789,7 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> c
             }
 
             if (msg.type() == typeid(SftpThreadCmdPassword)) {
-                auto m = std::any_cast<SftpThreadCmdPassword>(msg);
+                auto m = any_cast<SftpThreadCmdPassword>(msg);
                 if (!sftp_connection->PasswordAuth(m.password)) {
                     respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_ERROR,
                                       SftpThreadResponseError{"Failed to authenticate."});
@@ -789,7 +802,7 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> c
             }
 
             if (msg.type() == typeid(SftpThreadCmdGetDir)) {
-                auto m = std::any_cast<SftpThreadCmdGetDir>(msg);
+                auto m = any_cast<SftpThreadCmdGetDir>(msg);
                 SftpThreadResponseGetDir resp;
                 resp.dir_list = sftp_connection->GetDir(m.dir);
                 resp.dir = m.dir;
@@ -798,7 +811,7 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> c
             }
 
             if (msg.type() == typeid(SftpThreadCmdDownload)) {
-                auto m = std::any_cast<SftpThreadCmdDownload>(msg);
+                auto m = any_cast<SftpThreadCmdDownload>(msg);
                 sftp_connection->DownloadFile(m.remote_path, m.local_path);
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_DOWNLOAD,
                                   SftpThreadResponseDownload{m.local_path, m.remote_path});
@@ -807,7 +820,7 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<std::any>> c
             }
 
             if (msg.type() == typeid(SftpThreadCmdUpload)) {
-                auto m = std::any_cast<SftpThreadCmdUpload>(msg);
+                auto m = any_cast<SftpThreadCmdUpload>(msg);
                 sftp_connection->UploadFile(m.local_path, m.remote_path);
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_UPLOAD,
                                   SftpThreadResponseUpload{m.remote_path});
@@ -1161,10 +1174,13 @@ class SftpguiFrame : public wxFrame {
     string conn_str_;
     string local_tmp_;
     wxConfigBase *config_;
+    wxToolBarBase *tool_bar_;
     DirListCtrl *dir_list_ctrl_;
     wxTextCtrl *path_text_ctrl_;
     wxTimer file_watcher_timer_;
     string current_dir_;
+    stack<string> prev_dirs_;
+    stack<string> fwd_dirs_;
     vector<DirEntry> current_dir_list_;
     int sort_column_ = 0;
     bool sort_desc_ = false;
@@ -1172,7 +1188,7 @@ class SftpguiFrame : public wxFrame {
     string stored_highlighted_ = "";
     unordered_set<string> stored_selected_;
     unique_ptr<thread> sftp_thread_;
-    shared_ptr<Channel<std::any>> sftp_thread_channel_ = make_shared<Channel<std::any>>();
+    shared_ptr<Channel<any>> sftp_thread_channel_ = make_shared<Channel<any>>();
     wxTimer reconnect_timer_;
     int reconnect_timer_countdown_;
     string reconnect_timer_error_ = "";
@@ -1239,8 +1255,45 @@ public:
         file_menu->Append(ID_PARENT_DIR, "Parent directory\tAlt+Up", wxEmptyString, wxITEM_NORMAL);
 #endif
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            this->AddCurDirToHistory();
             this->RefreshDir(normalize_path(this->current_dir_ + "/.."), false);
         }, ID_PARENT_DIR);
+
+#ifdef __WXOSX__
+        file_menu->Append(wxID_BACKWARD, "Back\tCtrl+[", wxEmptyString, wxITEM_NORMAL);
+#else
+        file_menu->Append(wxID_BACKWARD, "Back\tAlt+Left", wxEmptyString, wxITEM_NORMAL);
+#endif
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            if (wxIsBusy() || this->prev_dirs_.empty()) {
+                return;
+            }
+
+            string dir = this->prev_dirs_.top();
+            this->prev_dirs_.pop();
+            this->fwd_dirs_.push(this->current_dir_);
+            this->RefreshDir(dir, false);
+            this->tool_bar_->EnableTool(wxID_BACKWARD, this->prev_dirs_.size() > 0);
+            this->tool_bar_->EnableTool(wxID_FORWARD, this->fwd_dirs_.size() > 0);
+        }, wxID_BACKWARD);
+
+#ifdef __WXOSX__
+        file_menu->Append(wxID_FORWARD, "Forward\tCtrl+]", wxEmptyString, wxITEM_NORMAL);
+#else
+        file_menu->Append(wxID_FORWARD, "Forward\tAlt+Right", wxEmptyString, wxITEM_NORMAL);
+#endif
+        this->Bind(wxEVT_TOOL, [&](wxCommandEvent &event) {
+            if (wxIsBusy() || this->fwd_dirs_.empty()) {
+                return;
+            }
+
+            string dir = this->fwd_dirs_.top();
+            this->fwd_dirs_.pop();
+            this->prev_dirs_.push(this->current_dir_);
+            this->RefreshDir(dir, false);
+            this->tool_bar_->EnableTool(wxID_BACKWARD, this->prev_dirs_.size() > 0);
+            this->tool_bar_->EnableTool(wxID_FORWARD, this->fwd_dirs_.size() > 0);
+        }, wxID_FORWARD);
 
 #ifdef __WXOSX__
         file_menu->Append(ID_OPEN_SELECTED, "Open selected item\tCtrl+Down", wxEmptyString, wxITEM_NORMAL);
@@ -1313,6 +1366,8 @@ public:
                 wxAcceleratorEntry(wxACCEL_CTRL, 'R', wxID_REFRESH),
                 wxAcceleratorEntry(wxACCEL_CTRL, 'L', ID_SET_DIR),
                 wxAcceleratorEntry(wxACCEL_ALT, WXK_UP, ID_PARENT_DIR),
+                wxAcceleratorEntry(wxACCEL_ALT, WXK_LEFT, wxID_BACKWARD),
+                wxAcceleratorEntry(wxACCEL_ALT, WXK_RIGHT, wxID_FORWARD),
         };
         wxAcceleratorTable accel(sizeof(entries), entries);
         this->SetAcceleratorTable(accel);
@@ -1321,7 +1376,6 @@ public:
         this->file_watcher_timer_.Bind(wxEVT_TIMER, &SftpguiFrame::OnFileWatcherTimer, this);
         this->file_watcher_timer_.Start(1000);
 
-
         // Main layout.
         auto *panel = new wxPanel(this);
         auto *sizer = new wxBoxSizer(wxVERTICAL);
@@ -1329,12 +1383,12 @@ public:
         sizer->Add(sizer_inner_top, 0, wxEXPAND | wxALL, 1);
 
         // Create toolbar
-        wxToolBarBase *tool_bar = this->CreateToolBar(wxTB_DEFAULT_STYLE);
-        auto tool_bar_bmp_size = wxArtProvider::GetNativeSizeHint(wxART_TOOLBAR) * (1/this->GetContentScaleFactor());
-        tool_bar->SetToolBitmapSize(tool_bar_bmp_size);
-        auto size = tool_bar->GetToolBitmapSize();
+        this->tool_bar_ = this->CreateToolBar(wxTB_DEFAULT_STYLE);
+        auto tool_bar_bmp_size = wxArtProvider::GetNativeSizeHint(wxART_TOOLBAR) * (1 / this->GetContentScaleFactor());
+        this->tool_bar_->SetToolBitmapSize(tool_bar_bmp_size);
+        auto size = this->tool_bar_->GetToolBitmapSize();
         size = size * this->GetContentScaleFactor();
-        tool_bar->AddTool(
+        this->tool_bar_->AddTool(
                 ID_PARENT_DIR,
                 "Parent directory",
                 this->GetBitmap("_parent_dir", wxART_TOOLBAR, size),
@@ -1342,23 +1396,25 @@ public:
                 wxITEM_NORMAL,
                 "Parent directory",
                 "Go to parent directory");
-//        tool_bar->AddTool(
-//                wxID_BACKWARD,
-//                "Back",
-//                this->GetBitmap("_nav_back", wxART_TOOLBAR, size),
-//                wxNullBitmap,
-//                wxITEM_NORMAL,
-//                "Back",
-//                "Go back a directory");
-//        tool_bar->AddTool(
-//                wxID_FORWARD,
-//                "Forward",
-//                this->GetBitmap("_nav_fwd", wxART_TOOLBAR, size),
-//                wxNullBitmap,
-//                wxITEM_NORMAL,
-//                "Forward",
-//                "Go forward a directory");
-        tool_bar->AddTool(
+        this->tool_bar_->AddTool(
+                wxID_BACKWARD,
+                "Back",
+                this->GetBitmap("_nav_back", wxART_TOOLBAR, size),
+                wxNullBitmap,
+                wxITEM_NORMAL,
+                "Back",
+                "Go back a directory");
+        this->tool_bar_->EnableTool(wxID_BACKWARD, false);
+        this->tool_bar_->AddTool(
+                wxID_FORWARD,
+                "Forward",
+                this->GetBitmap("_nav_fwd", wxART_TOOLBAR, size),
+                wxNullBitmap,
+                wxITEM_NORMAL,
+                "Forward",
+                "Go forward a directory");
+        this->tool_bar_->EnableTool(wxID_FORWARD, false);
+        this->tool_bar_->AddTool(
                 wxID_REFRESH,
                 "Refresh",
                 this->GetBitmap("_refresh", wxART_TOOLBAR, size),
@@ -1366,7 +1422,7 @@ public:
                 wxITEM_NORMAL,
                 "Refresh",
                 "Refresh the current directory list");
-        tool_bar->AddTool(
+        this->tool_bar_->AddTool(
                 wxID_OPEN,
                 "Open",
                 this->GetBitmap("_open_file", wxART_TOOLBAR, size),
@@ -1374,7 +1430,7 @@ public:
                 wxITEM_NORMAL,
                 "Open",
                 "Open the selected file");
-//        tool_bar->AddTool(
+//        this->tool_bar_->AddTool(
 //                wxID_NEW,
 //                "New file",
 //                this->GetBitmap("_new_file", wxART_TOOLBAR, size),
@@ -1382,7 +1438,7 @@ public:
 //                wxITEM_NORMAL,
 //                "New file",
 //                "Create an empty file");
-//        tool_bar->AddTool(
+//        this->tool_bar_->AddTool(
 //                -1,
 //                "New directory",
 //                this->GetBitmap("_new_dir", wxART_TOOLBAR, size),
@@ -1390,7 +1446,7 @@ public:
 //                wxITEM_NORMAL,
 //                "New directory",
 //                "Create a new directory");
-//        tool_bar->AddTool(
+//        this->tool_bar_->AddTool(
 //                -1,
 //                "Rename",
 //                this->GetBitmap("_rename", wxART_TOOLBAR, size),
@@ -1398,7 +1454,7 @@ public:
 //                wxITEM_NORMAL,
 //                "Rename",
 //                "Rename currently selected file or directory");
-//        tool_bar->AddTool(
+//        this->tool_bar_->AddTool(
 //                wxID_DELETE,
 //                "Delete",
 //                this->GetBitmap("_delete", wxART_TOOLBAR, size),
@@ -1406,7 +1462,7 @@ public:
 //                wxITEM_NORMAL,
 //                "Delete",
 //                "Delete currently selected file or directory");
-        tool_bar->Realize();
+        this->tool_bar_->Realize();
 
         this->Bind(wxEVT_TOOL, [&](wxCommandEvent &event) {
             this->OnItemActivated();
@@ -1421,9 +1477,14 @@ public:
                 wxDefaultSize,
                 wxTE_PROCESS_ENTER);
         sizer_inner_top->Add(this->path_text_ctrl_, 1, wxEXPAND | wxALL, 4);
+
+        // Handle when pressing enter while focused on the address bar text field.
         this->path_text_ctrl_->Bind(wxEVT_TEXT_ENTER, [&](wxCommandEvent &event) {
+            this->AddCurDirToHistory();
             this->RefreshDir(this->path_text_ctrl_->GetValue().ToStdString(wxMBConvUTF8()), false);
         });
+
+        // Handle when pressing ESC while focused on the address bar text field.
         this->path_text_ctrl_->Bind(wxEVT_CHAR_HOOK, [&](wxKeyEvent &evt) {
             if (evt.GetModifiers() == 0 && evt.GetKeyCode() == WXK_ESCAPE && this->path_text_ctrl_->HasFocus()) {
                 this->path_text_ctrl_->SetValue(wxString::FromUTF8(this->current_dir_));
@@ -1780,6 +1841,7 @@ private:
             auto entry = this->current_dir_list_[item];
             auto path = normalize_path(this->current_dir_ + "/" + entry.name_);
             if (entry.isDir_) {
+                this->AddCurDirToHistory();
                 this->current_dir_ = path;
                 this->path_text_ctrl_->SetValue(wxString::FromUTF8(path));
                 this->current_dir_list_.clear();
@@ -1933,6 +1995,15 @@ private:
         if (!wxIsBusy()) {
             wxBeginBusyCursor();
         }
+    }
+
+    void AddCurDirToHistory() {
+        this->prev_dirs_.push(this->current_dir_);
+        while (!this->fwd_dirs_.empty()) {
+            this->fwd_dirs_.pop();
+        }
+        this->tool_bar_->EnableTool(wxID_BACKWARD, this->prev_dirs_.size() > 0);
+        this->tool_bar_->EnableTool(wxID_FORWARD, this->fwd_dirs_.size() > 0);
     }
 
     // Wraps wxArtProvider::GetBitmap and sets the scale factor of the wxBitmap.
