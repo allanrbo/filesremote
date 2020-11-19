@@ -255,7 +255,41 @@ public:
     string mode_str_;
     string owner_;
     string group_;
-    bool isDir_;
+    bool is_dir_;
+
+    string SizeFormatted(bool as_bytes) {
+        if (this->is_dir_) {
+            return "";
+        }
+
+
+        if (as_bytes) {
+            return to_string(this->size_);
+        }
+
+        if (this->size_ < 1024) {
+            return to_string(this->size_) + " bytes";
+        }
+
+        double size = this->size_;
+        size = size / 1024.0;
+        if (size < 1024) {
+            return DirEntry::Rounded(size, 1) + " KiB";
+        }
+
+        size = size / 1024.0;
+        if (size < 1024) {
+            return DirEntry::Rounded(size, 2) + " MiB";
+        }
+
+        size = size / 1024.0;
+        if (size < 1024) {
+            return DirEntry::Rounded(size, 2) + " GiB";
+        }
+
+        size = size / 1024.0;
+        return DirEntry::Rounded(size, 2) + " TiB";
+    }
 
     string ModifiedFormatted() {
         if (this->modified_ < 5) {
@@ -264,6 +298,13 @@ public:
         auto t = wxDateTime((time_t) this->modified_);
         t.MakeUTC();
         return t.FormatISOCombined(' ').ToStdString();
+    }
+
+private:
+    static string Rounded(double d, int precision) {
+        stringstream ss;
+        ss << std::fixed << std::setprecision(precision) << d;
+        return ss.str();
     }
 };
 
@@ -481,7 +522,7 @@ public:
             }
             if (attrs.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) {
                 d.mode_ = attrs.permissions;
-                d.isDir_ = attrs.permissions & S_IFDIR;
+                d.is_dir_ = attrs.permissions & S_IFDIR;
             }
 
             // Extract user, group and mode string from the free text line.
@@ -903,7 +944,7 @@ protected:
 
     int IconIdx(DirEntry entry) {
         int r = 0;
-        if (entry.isDir_) {
+        if (entry.is_dir_) {
             r = 1;
         }
         return r;
@@ -941,11 +982,13 @@ public:
 
 class DvlcDirList : public DirListCtrl {
     wxDataViewListCtrl *dvlc_;
+    wxConfigBase *config_;
 
 public:
-    explicit DvlcDirList(wxWindow *parent, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
+    explicit DvlcDirList(wxWindow *parent, wxConfigBase *config, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
         this->dvlc_ = new wxDataViewListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                              wxDV_MULTIPLE | wxDV_ROW_LINES);
+        this->config_ = config;
 
         // TODO(allan): wxDATAVIEW_CELL_EDITABLE for renaming files?
         this->dvlc_->AppendIconTextColumn("  Name", wxDATAVIEW_CELL_INERT, 300);
@@ -968,6 +1011,11 @@ public:
     }
 
     void Refresh(vector<DirEntry> entries) {
+        bool as_bytes = false;
+        if (this->config_->Read("/size_units", "1") == "2") {
+            as_bytes = true;
+        }
+
         this->dvlc_->DeleteAllItems();
 
         for (int i = 0; i < entries.size(); i++) {
@@ -975,7 +1023,7 @@ public:
 
             wxVector<wxVariant> data;
             data.push_back(wxVariant(wxDataViewIconText(wxString::FromUTF8(entries[i].name_), icon)));
-            data.push_back(wxVariant(to_string(entries[i].size_)));
+            data.push_back(wxVariant(entries[i].SizeFormatted(as_bytes)));
             data.push_back(wxVariant(entries[i].ModifiedFormatted()));
             data.push_back(wxVariant(entries[i].mode_str_));
             data.push_back(wxVariant(entries[i].owner_));
@@ -1036,10 +1084,12 @@ public:
 
 class LcDirList : public DirListCtrl {
     wxListCtrl *list_ctrl_;
+    wxConfigBase *config_;
 
 public:
-    explicit LcDirList(wxWindow *parent, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
+    explicit LcDirList(wxWindow *parent, wxConfigBase *config, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
         this->list_ctrl_ = new wxListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT);
+        this->config_ = config;
 
         this->list_ctrl_->AssignImageList(this->icons_image_list_, wxIMAGE_LIST_SMALL);
 
@@ -1064,13 +1114,18 @@ public:
     }
 
     void Refresh(vector<DirEntry> entries) {
+        bool as_bytes = false;
+        if (this->config_->Read("/size_units", "1") == "2") {
+            as_bytes = true;
+        }
+
         this->list_ctrl_->DeleteAllItems();
 
         for (int i = 0; i < entries.size(); i++) {
             this->list_ctrl_->InsertItem(i, entries[i].name_, this->IconIdx(entries[i]));
             this->list_ctrl_->SetItemData(i, i);
             this->list_ctrl_->SetItem(i, 0, wxString::FromUTF8(entries[i].name_));
-            this->list_ctrl_->SetItem(i, 1, to_string(entries[i].size_));
+            this->list_ctrl_->SetItem(i, 1, entries[i].SizeFormatted(as_bytes));
             this->list_ctrl_->SetItem(i, 2, entries[i].ModifiedFormatted());
             this->list_ctrl_->SetItem(i, 3, entries[i].mode_str_);
             this->list_ctrl_->SetItem(i, 4, entries[i].owner_);
@@ -1127,7 +1182,8 @@ public:
 
 class PreferencesPageGeneralPanel : public wxPanel {
     wxConfigBase *config_;
-    wxTextCtrl *text_editor_;
+    wxTextCtrl *editor_path_;
+    wxChoice *size_units_;
 
 public:
     PreferencesPageGeneralPanel(wxWindow *parent, wxConfigBase *config) : wxPanel(parent) {
@@ -1136,29 +1192,60 @@ public:
         auto *sizer = new wxBoxSizer(wxVERTICAL);
 
         auto *item_sizer_editor = new wxBoxSizer(wxHORIZONTAL);
+        sizer->Add(item_sizer_editor, 0, wxGROW | wxALL, 5);
         auto *label_editor = new wxStaticText(this, wxID_ANY, "Editor path:");
         item_sizer_editor->Add(label_editor, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
         item_sizer_editor->Add(5, 5, 1, wxALL, 0);
-        this->text_editor_ = new wxTextCtrl(this, 100, wxEmptyString, wxDefaultPosition, wxSize(300, -1));
-        this->Bind(wxEVT_TEXT, [&](wxCommandEvent &) {
-            if (wxPreferencesEditor::ShouldApplyChangesImmediately()) {
-                this->TransferDataFromWindow();
-            }
-        });
-        item_sizer_editor->Add(this->text_editor_, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
+        this->editor_path_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize(300, -1));
+        item_sizer_editor->Add(this->editor_path_, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
 
-        sizer->Add(item_sizer_editor, 0, wxGROW | wxALL, 5);
+        auto *item_sizer_size_unit = new wxBoxSizer(wxHORIZONTAL);
+        sizer->Add(item_sizer_size_unit, 0, wxGROW | wxALL, 5);
+        auto *label_size_unit = new wxStaticText(this, wxID_ANY, "File size units:");
+        item_sizer_size_unit->Add(label_size_unit, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
+        item_sizer_size_unit->Add(5, 5, 1, wxALL, 0);
+        this->size_units_ = new wxChoice(this, wxID_ANY, wxDefaultPosition, wxSize(300, -1));
+        this->size_units_->Append("Automatic");
+        this->size_units_->Append("Bytes");
+        item_sizer_size_unit->Add(this->size_units_, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5);
 
         this->SetSizerAndFit(sizer);
     }
 
     virtual bool TransferDataToWindow() {
-        this->text_editor_->SetValue(this->config_->Read("/editor", ""));
+        this->editor_path_->SetValue(this->config_->Read("/editor", ""));
+
+        auto size_units = this->config_->Read("/size_units", "1");
+        if (size_units == "2") {
+            this->size_units_->SetSelection(1);
+        } else {
+            this->size_units_->SetSelection(0);
+        }
+
+        // Setting up the on-change binds here, so we only start monitoring for change after values have been loaded.
+        this->editor_path_->Bind(wxEVT_TEXT, [&](wxCommandEvent &) {
+            if (wxPreferencesEditor::ShouldApplyChangesImmediately()) {
+                this->TransferDataFromWindow();
+            }
+        });
+        this->size_units_->Bind(wxEVT_CHOICE, [&](wxCommandEvent &) {
+            if (wxPreferencesEditor::ShouldApplyChangesImmediately()) {
+                this->TransferDataFromWindow();
+            }
+        });
+
         return true;
     }
 
     virtual bool TransferDataFromWindow() {
-        this->config_->Write("/editor", this->text_editor_->GetValue());
+        this->config_->Write("/editor", this->editor_path_->GetValue());
+
+        if (this->size_units_->GetSelection() == 1) {
+            this->config_->Write("/size_units", "2");
+        } else {
+            this->config_->Write("/size_units", "1");
+        }
+
         this->config_->Flush();
         return true;
     }
@@ -1538,10 +1625,10 @@ public:
 
 #ifdef __WXOSX__
         // On MacOS wxDataViewListCtrl looks best.
-        this->dir_list_ctrl_ = new DvlcDirList(panel, icons_image_list);
+        this->dir_list_ctrl_ = new DvlcDirList(panel, this->config_, icons_image_list);
 #else
         // On GTK and Windows wxListCtrl looks best.
-        this->dir_list_ctrl_ = new LcDirList(panel, icons_image_list);
+        this->dir_list_ctrl_ = new LcDirList(panel, this->config_, icons_image_list);
 #endif
         sizer->Add(this->dir_list_ctrl_->GetCtrl(), 1, wxEXPAND | wxALL, 0);
         this->dir_list_ctrl_->SetFocus();
@@ -1594,7 +1681,11 @@ public:
             for (auto o : this->opened_files_local_) {
                 remove(localPathUnicode(o.second.local_path));
             }
-            remove_all(localPathUnicode(this->local_tmp_));
+            try {
+                remove_all(localPathUnicode(this->local_tmp_));
+            } catch(...) {
+                // Let it be a best effort. Text editors, etc., could be locking these dirs.
+            }
 
             // Save frame position.
             int x, y, w, h;
@@ -1815,7 +1906,7 @@ private:
             if (this->current_dir_list_.size() == 0) {
                 DirEntry parent_dir_entry;
                 parent_dir_entry.name_ = "..";
-                parent_dir_entry.isDir_ = true;
+                parent_dir_entry.is_dir_ = true;
                 this->dir_list_ctrl_->Refresh(vector<DirEntry>{parent_dir_entry});
             }
 
@@ -1834,7 +1925,7 @@ private:
             if (this->current_dir_list_.size() == 0) {
                 DirEntry parent_dir_entry;
                 parent_dir_entry.name_ = "..";
-                parent_dir_entry.isDir_ = true;
+                parent_dir_entry.is_dir_ = true;
                 this->dir_list_ctrl_->Refresh(vector<DirEntry>{parent_dir_entry});
             }
 
@@ -1880,7 +1971,7 @@ private:
             int item = this->dir_list_ctrl_->GetHighlighted();
             auto entry = this->current_dir_list_[item];
             auto path = normalize_path(this->current_dir_ + "/" + entry.name_);
-            if (entry.isDir_) {
+            if (entry.is_dir_) {
                 this->AddCurDirToHistory();
                 this->current_dir_ = path;
                 this->path_text_ctrl_->SetValue(wxString::FromUTF8(path));
@@ -1974,8 +2065,8 @@ private:
         auto cmp = [&](const DirEntry &a, const DirEntry &b) {
             if (a.name_ == "..") { return true; }
             if (b.name_ == "..") { return false; }
-            if (a.isDir_ && !b.isDir_) { return true; }
-            if (!a.isDir_ && b.isDir_) { return false; }
+            if (a.is_dir_ && !b.is_dir_) { return true; }
+            if (!a.is_dir_ && b.is_dir_) { return false; }
 
             string a_val, b_val;
             if (this->sort_column_ == 1) {
