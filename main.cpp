@@ -92,7 +92,7 @@ using std::filesystem::remove_all;
 #else
 // Polyfills for these funcs that got introduced only in MacOS 10.15.
 
-typedef unsigned long file_time_type;
+typedef uint64_t file_time_type;
 
 bool exists(string path) {
     struct stat sb;
@@ -782,12 +782,12 @@ void respondToUIThread(wxEvtHandler *response_dest, int id) {
 
 // It would be much more elegant to use std::any, but it is unavailable in MacOS 10.13.
 typedef variant<
-SftpThreadCmdShutdown,
-SftpThreadCmdConnect,
-SftpThreadCmdPassword,
-SftpThreadCmdGetDir,
-SftpThreadCmdDownload,
-SftpThreadCmdUpload
+        SftpThreadCmdShutdown,
+        SftpThreadCmdConnect,
+        SftpThreadCmdPassword,
+        SftpThreadCmdGetDir,
+        SftpThreadCmdDownload,
+        SftpThreadCmdUpload
 > threadFuncVariant;
 
 void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<threadFuncVariant>> channel) {
@@ -1389,6 +1389,7 @@ public:
         // seem to only work via SetAcceleratorTable, so setting them again here.
         // MacOS seems to ignores this table when the focus is on wxDataViewListCtrl, so we rely on the accelerators in
         // the menu item titles on MacOS.
+#ifndef __WXOSX__
         wxAcceleratorEntry entries[]{
                 wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, wxID_REFRESH),
                 wxAcceleratorEntry(wxACCEL_CTRL, 'R', wxID_REFRESH),
@@ -1399,6 +1400,7 @@ public:
         };
         wxAcceleratorTable accel(sizeof(entries), entries);
         this->SetAcceleratorTable(accel);
+#endif
 
         // Set up a timer that will watch for changes in local files.
         this->file_watcher_timer_.Bind(wxEVT_TIMER, &SftpguiFrame::OnFileWatcherTimer, this);

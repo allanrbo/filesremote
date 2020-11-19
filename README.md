@@ -112,24 +112,30 @@ Compiling:
     # validating static linking
     otool -L sftpgui
 
-    rm -fr Sftpgui.app
-    mkdir -p Sftpgui.app/Contents/MacOS/
-    mkdir -p Sftpgui.app/Contents/Resources/
-    cp Info.plist Sftpgui.app/Contents/
-    echo APPL???? > Sftpgui.app/Contents/PkgInfo
-    cp sftpgui Sftpgui.app/Contents/MacOS/
-    cp graphics/appicon/icon.icns Sftpgui.app/Contents/Resources/
+    rm -fr /tmp/Sftpgui.app
+    mkdir -p /tmp/Sftpgui.app/Contents/MacOS/
+    mkdir -p /tmp/Sftpgui.app/Contents/Resources/
+    cp Info.plist /tmp/Sftpgui.app/Contents/
+    echo APPL???? > /tmp/Sftpgui.app/Contents/PkgInfo
+    cp sftpgui /tmp/Sftpgui.app/Contents/MacOS/
+    cp graphics/appicon/icon.icns /tmp/Sftpgui.app/Contents/Resources/
 
-    rm -fr /Applications/Sftpgui.app ; cp -r Sftpgui.app /Applications/Sftpgui.app
+    rm -fr /Applications/Sftpgui.app ; cp -r /tmp/Sftpgui.app /Applications/Sftpgui.app
 
-    hdiutil create -srcfolder Sftpgui.app \
+    hdiutil create -srcfolder /tmp/Sftpgui.app \
       -volname Sftpgui \
       -fs HFS+ -fsargs "-c c=64,a=16,e=16" \
       -format UDZO -imagekey zlib-level=9 /tmp/Sftpgui.dmg
     cp /tmp/Sftpgui.dmg .
     rm /tmp/Sftpgui.dmg
+    rm -fr /tmp/Sftpgui.app
+
+    open -a Sftpgui.app --args user1@192.168.50.196
+
+Avoid creating the .app folder on a network volume. Seems to cause macOS to hang sometimes.
 
 Troubleshooting "Killed: 9" error when starting binary on different machine: Possibly something with the kernel having cached the binary, and detecting a mismatch. Try reboot, or use a different output binary name in the -o parameter.
+
 
 
 ### Windows build
