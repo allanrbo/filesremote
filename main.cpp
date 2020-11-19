@@ -2,13 +2,13 @@
 
 #include <algorithm>
 #include <condition_variable>  // NOLINT
+#include <future>
 #include <list>
 #include <map>
 #include <mutex> // NOLINT
 #include <sstream>
 #include <stack>
 #include <string>
-#include <thread> // NOLINT
 #include <unordered_set>
 #include <variant>
 #include <vector>
@@ -60,10 +60,14 @@
 #include "./graphics/ui/ui_icons.h"
 #include "./graphics/appicon/icon_64x64.xpm"
 
+using std::async;
+using std::chrono::seconds;
 using std::copy;
 using std::exception;
+using std::future;
 using std::get;
 using std::get_if;
+using std::launch;
 using std::make_shared;
 using std::make_tuple;
 using std::make_unique;
@@ -1206,6 +1210,7 @@ class SftpguiFrame : public wxFrame {
     DirListCtrl *dir_list_ctrl_;
     wxTextCtrl *path_text_ctrl_;
     wxTimer file_watcher_timer_;
+    string home_dir_;
     string current_dir_;
     stack<string> prev_dirs_;
     stack<string> fwd_dirs_;
@@ -1215,7 +1220,7 @@ class SftpguiFrame : public wxFrame {
     map<string, OpenedFile> opened_files_local_;
     string stored_highlighted_ = "";
     unordered_set<string> stored_selected_;
-    unique_ptr<thread> sftp_thread_;
+    unique_ptr<future<void>> sftp_thread_;
     shared_ptr<Channel<threadFuncVariant>> sftp_thread_channel_ = make_shared<Channel<threadFuncVariant>>();
     wxTimer reconnect_timer_;
     int reconnect_timer_countdown_;
@@ -1578,7 +1583,11 @@ public:
 
             if (this->sftp_thread_channel_) {
                 this->sftp_thread_channel_->Put(SftpThreadCmdShutdown{});
-                this->sftp_thread_->join();
+
+                // Unless we never even connected, wait up to 3 seconds.
+                if (!this->home_dir_.empty()) {
+                    this->sftp_thread_->wait_for(seconds(3));
+                }
             }
 
             // Clean up all files and directories we put there.
@@ -1616,7 +1625,7 @@ public:
 
         // Start the sftp thread. We will be communicating with it only through message passing.
         this->SetupSftpThreadCallbacks();
-        this->sftp_thread_ = make_unique<thread>(sftpThreadFunc, this, this->sftp_thread_channel_);
+        this->sftp_thread_ = make_unique<future<void>>(async(launch::async, sftpThreadFunc, this, this->sftp_thread_channel_));
         this->sftp_thread_channel_->Put(SftpThreadCmdConnect{this->username_, this->host_, this->port_});
         if (!wxIsBusy()) {
             wxBeginBusyCursor();
@@ -1630,6 +1639,7 @@ private:
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
             wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseConnected>();
+            this->home_dir_ = r.home_dir;
             if (this->current_dir_ == "") {
                 this->current_dir_ = r.home_dir;
             }

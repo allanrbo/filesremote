@@ -5,7 +5,7 @@ A no-nonsense SFTP file browser. Ability to download and open files in local edi
 
 Cross platform with fairly native feel (uses wxWidgets).
 
-A lot of inspiration for this tool came from WinSCP. In particular the ability to automatically download a file, open it in a local editor, and upload it when changes are detected I wasn't able to find a tool as elegant as WinSCP for Linux and MacOS. Therefore I built this tool.
+The inspiration for this tool came from WinSCP. In particular the automatic download/upload feature I wasn't able to find in a tool for Linux and MacOS. Hence I built this tool.
 
 
 Using
@@ -13,7 +13,9 @@ Using
 
 ### MacOS specific
 
-Go to File -> Preferences and set up the path of your text editor. For example for Sublime Text on MacOS this could be:
+On first run the app will be blocked, because I did not buy an Apple Developer account for this free app. Unblock it in this System Preferences pages: ![Security & Privacy system preferences page](graphics/mac_security_screenshot.png)
+
+After starting the app, go to File -> Preferences and set up the path of your text editor. For example for Sublime Text on MacOS this could be:
 
     /Applications/Sublime\ Text.app/Contents/SharedSupport/bin/subl
 
@@ -190,22 +192,22 @@ Compiling:
 ### TODO
 
  * Move back/fwd/parent to a Go menu instead of File menu.
- * Backspace should navigate back (keep stack of prev dirs).
+ * Drag & drop file upload / download
  * Executable flags should give executable icon
  * Symlink icon
- * Sudo checkbox or button
- * Drag & drop file upload / download
  * Rename files
  * Delete files
  * Create files
  * Create directories
  * Ctrl-c / ctrl-v
  * When a file path is pasted to the path bar, open the file directly and go to its directory.
+ * A better host selection window. Get inspired by Finder's "Connect to Server" window.
+ * Simple builtin text editor, with a warning bar in the top saying to configure a proper one.
  * Change permissions
+ * Sudo checkbox or button
  * Fully use cmake on all platforms
  * Split source code into files
  * Ensure use of unique_ptr everywhere possible, instead of raw pointers
- * A better host selection window. Get inspired by Finder's "Connect to Server" window.
  * Better control the config path. ".config/sftpgui"
  * Better control the config path on windows. If a sftpgui.conf file exists in same dir, then use it.
  * Warn if thumbprint changed
