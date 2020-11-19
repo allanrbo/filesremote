@@ -12,7 +12,7 @@
 #include <unordered_set>
 #include <variant>
 #include <vector>
-
+#include <iomanip>
 
 #ifndef __WXOSX__
 
@@ -1354,25 +1354,41 @@ public:
         auto *file_menu = new wxMenu();
         menuBar->Append(file_menu, "&File");
 
+        file_menu->Append(wxID_PREFERENCES);
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            auto prefs_editor = new wxPreferencesEditor();
+            prefs_editor->AddPage(new PreferencesPageGeneral(this->config_));
+            prefs_editor->Show(this);
+        }, wxID_PREFERENCES);
+
+        file_menu->Append(wxID_EXIT, "E&xit", "Quit this program");
+        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+            this->Close(true);
+        }, wxID_EXIT);
+
+
+        auto *go_menu = new wxMenu();
+        menuBar->Append(go_menu, "&Go");
+
         // Adding refresh to the menu twice with two different hotkeys, instead of using SetAcceleratorTable.
         // It's wonky, but MacOS has trouble with non-menu accelerators when the wxDataViewListCtrl has focus.
-        file_menu->Append(wxID_REFRESH, "Refresh\tF5");
-        file_menu->Append(wxID_REFRESH, "Refresh\tCtrl+R");
+        go_menu->Append(wxID_REFRESH, "Refresh\tF5");
+        go_menu->Append(wxID_REFRESH, "Refresh\tCtrl+R");
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
             this->latest_interesting_status_ = "";
             this->RefreshDir(this->current_dir_, true);
         }, wxID_REFRESH);
 
-        file_menu->Append(ID_SET_DIR, "Change directory\tCtrl+L");
+        go_menu->Append(ID_SET_DIR, "Change directory\tCtrl+L");
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &) {
             this->path_text_ctrl_->SetFocus();
             this->path_text_ctrl_->SelectAll();
         }, ID_SET_DIR);
 
 #ifdef __WXOSX__
-        file_menu->Append(ID_PARENT_DIR, "Parent directory\tCtrl+Up", wxEmptyString, wxITEM_NORMAL);
+        go_menu->Append(ID_PARENT_DIR, "Parent directory\tCtrl+Up", wxEmptyString, wxITEM_NORMAL);
 #else
-        file_menu->Append(ID_PARENT_DIR, "Parent directory\tAlt+Up", wxEmptyString, wxITEM_NORMAL);
+        go_menu->Append(ID_PARENT_DIR, "Parent directory\tAlt+Up", wxEmptyString, wxITEM_NORMAL);
 #endif
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
             this->AddCurDirToHistory();
@@ -1380,9 +1396,9 @@ public:
         }, ID_PARENT_DIR);
 
 #ifdef __WXOSX__
-        file_menu->Append(wxID_BACKWARD, "Back\tCtrl+[", wxEmptyString, wxITEM_NORMAL);
+        go_menu->Append(wxID_BACKWARD, "Back\tCtrl+[", wxEmptyString, wxITEM_NORMAL);
 #else
-        file_menu->Append(wxID_BACKWARD, "Back\tAlt+Left", wxEmptyString, wxITEM_NORMAL);
+        go_menu->Append(wxID_BACKWARD, "Back\tAlt+Left", wxEmptyString, wxITEM_NORMAL);
 #endif
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
             if (wxIsBusy() || this->prev_dirs_.empty()) {
@@ -1398,9 +1414,9 @@ public:
         }, wxID_BACKWARD);
 
 #ifdef __WXOSX__
-        file_menu->Append(wxID_FORWARD, "Forward\tCtrl+]", wxEmptyString, wxITEM_NORMAL);
+        go_menu->Append(wxID_FORWARD, "Forward\tCtrl+]", wxEmptyString, wxITEM_NORMAL);
 #else
-        file_menu->Append(wxID_FORWARD, "Forward\tAlt+Right", wxEmptyString, wxITEM_NORMAL);
+        go_menu->Append(wxID_FORWARD, "Forward\tAlt+Right", wxEmptyString, wxITEM_NORMAL);
 #endif
         this->Bind(wxEVT_TOOL, [&](wxCommandEvent &event) {
             if (wxIsBusy() || this->fwd_dirs_.empty()) {
@@ -1416,27 +1432,11 @@ public:
         }, wxID_FORWARD);
 
 #ifdef __WXOSX__
-        file_menu->Append(ID_OPEN_SELECTED, "Open selected item\tCtrl+Down", wxEmptyString, wxITEM_NORMAL);
+        go_menu->Append(ID_OPEN_SELECTED, "Open selected item\tCtrl+Down", wxEmptyString, wxITEM_NORMAL);
 #endif
         this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
             this->dir_list_ctrl_->ActivateCurrent();
         }, ID_OPEN_SELECTED);
-
-        file_menu->AppendSeparator();
-
-        file_menu->Append(wxID_PREFERENCES);
-        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
-            auto prefs_editor = new wxPreferencesEditor();
-            prefs_editor->AddPage(new PreferencesPageGeneral(this->config_));
-            prefs_editor->Show(this);
-        }, wxID_PREFERENCES);
-
-        file_menu->AppendSeparator();
-
-        file_menu->Append(wxID_EXIT, "E&xit", "Quit this program");
-        this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
-            this->Close(true);
-        }, wxID_EXIT);
 
         auto *help_menu = new wxMenu;
         menuBar->Append(help_menu, "&Help");

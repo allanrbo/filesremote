@@ -191,7 +191,6 @@ Compiling:
 
 ### TODO
 
- * Move back/fwd/parent to a Go menu instead of File menu.
  * Drag & drop file upload / download
  * Executable flags should give executable icon
  * Symlink icon
