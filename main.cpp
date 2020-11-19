@@ -1914,6 +1914,10 @@ private:
     }
 
     void OnFileWatcherTimer(const wxTimerEvent &event) {
+        if (wxIsBusy()) {
+            return;
+        }
+
         for (auto o : this->opened_files_local_) {
             OpenedFile f = o.second;
             auto local_path = f.local_path;
