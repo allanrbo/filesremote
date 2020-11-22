@@ -52,6 +52,7 @@
 #include <wx/stdpaths.h>
 #include <wx/utils.h>
 #include <wx/wx.h>
+#include <wx/dataobj.h>
 
 #include <libssh2.h>
 #include <libssh2_sftp.h>
@@ -62,6 +63,7 @@
 
 using std::async;
 using std::chrono::seconds;
+using std::chrono::milliseconds;
 using std::copy;
 using std::exception;
 using std::future;
@@ -84,6 +86,12 @@ using std::unordered_set;
 using std::variant;
 using std::vector;
 using std::wstring;
+using std::list;
+using std::condition_variable;
+using std::mutex;
+using std::unique_lock;
+using std::optional;
+using std::nullopt;
 
 #ifndef __WXOSX__
 using std::filesystem::create_directories;
@@ -156,6 +164,8 @@ void remove_all(string path) {
 #define ID_SFTP_THREAD_RESPONSE_FILE_NOT_FOUND 190
 
 
+wxDataFormat data_format_internal = wxDataFormat("sftpgui_internal_data_format");
+
 void showException() {
     wxString error;
     try {
@@ -224,21 +234,34 @@ string localPathUnicode(string local_path) { return local_path; }
 template<class item>
 class Channel {
 private:
-    std::list<item> queue;
-    std::mutex m;
-    std::condition_variable cv;
+    list<item> queue;
+    mutex m;
+    condition_variable cv;
 public:
     void Put(const item &i) {
-        std::unique_lock<std::mutex> lock(m);
+        unique_lock<mutex> lock(m);
         queue.push_back(i);
         cv.notify_one();
     }
 
     item Get() {
-        std::unique_lock<std::mutex> lock(m);
+        unique_lock<mutex> lock(m);
         cv.wait(lock, [&]() {
             return !queue.empty();
         });
+        item result = queue.front();
+        queue.pop_front();
+        return result;
+    }
+
+    optional<item> Get(int timeout_ms) {
+        unique_lock<mutex> lock(m);
+        bool r = cv.wait_for(lock, milliseconds(timeout_ms), [&]() {
+            return !queue.empty();
+        });
+        if (!r) {
+            return nullopt;
+        }
         item result = queue.front();
         queue.pop_front();
         return result;
@@ -785,6 +808,7 @@ struct SftpThreadResponseError {
 
 struct SftpThreadResponseFileError {
     string remote_path;
+    bool open_in_editor; // TODO populate
 };
 
 
@@ -802,12 +826,15 @@ struct SftpThreadResponseUpload {
 struct SftpThreadCmdDownload {
     string local_path;
     string remote_path;
+    bool open_in_editor;
+    shared_ptr<Channel<bool>> response_channel;
 };
 
 
 struct SftpThreadResponseDownload {
     string local_path;
     string remote_path;
+    bool open_in_editor;
 };
 
 
@@ -886,8 +913,14 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<threadFuncVa
             if (get_if<SftpThreadCmdDownload>(&msg)) {
                 auto m = get_if<SftpThreadCmdDownload>(&msg);
                 sftp_connection->DownloadFile(m->remote_path, m->local_path);
+                wxSleep(3);
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_DOWNLOAD,
-                                  SftpThreadResponseDownload{m->local_path, m->remote_path});
+                                  SftpThreadResponseDownload{m->local_path, m->remote_path, m->open_in_editor});
+
+                if (m->response_channel != NULL) {
+                    m->response_channel->Put(true);
+                }
+
                 // TODO(allan): catch connection failure exceptions and re-enqueue SftpThreadCmdDownload?
                 continue;
             }
@@ -933,6 +966,7 @@ void sftpThreadFunc(wxEvtHandler *response_dest, shared_ptr<Channel<threadFuncVa
 
 typedef std::function<void(void)> OnItemActivatedCb;
 typedef std::function<void(int)> OnColumnHeaderClickCb;
+typedef std::function<void(int)> OnBeginDragCb;
 
 
 // A base class, because wxDataViewListCtrl looks best on MacOS, and wxListCtrl looks best on GTK and Windows.
@@ -940,6 +974,7 @@ class DirListCtrl {
 protected:
     OnItemActivatedCb on_item_activated_cb_;
     OnColumnHeaderClickCb on_column_header_click_cb_;
+    OnBeginDragCb on_begin_drag_cb_;
     wxImageList *icons_image_list_;
 
     int IconIdx(DirEntry entry) {
@@ -977,6 +1012,10 @@ public:
     void BindOnColumnHeaderClickCb(OnColumnHeaderClickCb cb) {
         this->on_column_header_click_cb_ = cb;
     }
+
+    void BindOnBeginDragCb(OnBeginDragCb cb) {
+        this->on_begin_drag_cb_ = cb;
+    }
 };
 
 
@@ -985,7 +1024,8 @@ class DvlcDirList : public DirListCtrl {
     wxConfigBase *config_;
 
 public:
-    explicit DvlcDirList(wxWindow *parent, wxConfigBase *config, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
+    explicit DvlcDirList(wxWindow *parent, wxConfigBase *config, wxImageList *icons_image_list) : DirListCtrl(
+            icons_image_list) {
         this->dvlc_ = new wxDataViewListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                              wxDV_MULTIPLE | wxDV_ROW_LINES);
         this->config_ = config;
@@ -1007,6 +1047,10 @@ public:
 
         this->dvlc_->Bind(wxEVT_DATAVIEW_COLUMN_HEADER_CLICK, [&](wxDataViewEvent &evt) {
             this->on_column_header_click_cb_(evt.GetColumn());
+        });
+
+        this->dvlc_->Bind(wxEVT_DATAVIEW_ITEM_BEGIN_DRAG, [&](wxDataViewEvent &evt) {
+            this->on_begin_drag_cb_(this->dvlc_->ItemToRow(evt.GetItem()));
         });
     }
 
@@ -1087,7 +1131,8 @@ class LcDirList : public DirListCtrl {
     wxConfigBase *config_;
 
 public:
-    explicit LcDirList(wxWindow *parent, wxConfigBase *config, wxImageList *icons_image_list) : DirListCtrl(icons_image_list) {
+    explicit LcDirList(wxWindow *parent, wxConfigBase *config, wxImageList *icons_image_list) : DirListCtrl(
+            icons_image_list) {
         this->list_ctrl_ = new wxListCtrl(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT);
         this->config_ = config;
 
@@ -1107,6 +1152,11 @@ public:
         this->list_ctrl_->Bind(wxEVT_LIST_COL_CLICK, [&](wxListEvent &evt) {
             this->on_column_header_click_cb_(evt.GetColumn());
         });
+
+        this->list_ctrl_->Bind(wxEVT_LIST_BEGIN_DRAG, [&](wxListEvent &evt) {
+            this->on_begin_drag_cb_(evt.GetData());
+        });
+
     }
 
     wxControl *GetCtrl() {
@@ -1266,6 +1316,203 @@ public:
 };
 
 
+// A custom wxFileDataObject in order to work around a bug with wxWidgets on macOS.
+class FileDataObject : public wxFileDataObject {
+#ifdef __WXOSX__
+private:
+    // Default wxFileDataObject on macOS misses file:// and is adds extra \r\n at the end, preventing it from working.
+    string GetFileNamesTrimmed() const {
+        string s = "";
+        for (int i = 0; i < m_filenames.GetCount(); i++) {
+            if (i > 0) {
+                s += "\r\n";
+            }
+            s += "file://" + this->m_filenames[i];
+        }
+        return s;
+    }
+
+public:
+    virtual bool GetDataHere(const wxDataFormat& format, void *buf) const wxOVERRIDE {
+        string s = this->GetFileNamesTrimmed();
+        strncpy((char*)buf, s.c_str(), s.length());
+        ((char*)buf)[s.length()] = 0;  // Null terminate.
+        return true;
+    }
+
+    virtual size_t GetDataSize(const wxDataFormat& f) const wxOVERRIDE {
+        return this->GetFileNamesTrimmed().size() + 1;  // +1 for null termination.
+    }
+#endif
+};
+
+
+class SftpoguiDataObject : public wxDataObject {
+
+    std::function<string(void)> file_fetcher_cb_;
+
+public:
+    char data[1000];
+    int len = 0;
+
+    FileDataObject receiving_file_data_obj_;
+
+
+    // get the best suited format for rendering our data
+    virtual wxDataFormat GetPreferredFormat(Direction dir = Get) const {
+        printf("%d: GetPreferredFormat\r\n", this);
+        fflush(stdout);
+        return data_format_internal;
+    }
+
+    // get the number of formats we support
+    virtual size_t GetFormatCount(Direction dir = Get) const {
+        printf("%d: GetFormatCount\r\n", this);
+        fflush(stdout);
+        return 2;
+    }
+
+    // return all formats in the provided array (of size GetFormatCount())
+    virtual void GetAllFormats(wxDataFormat *formats,
+                               Direction dir = Get) const {
+        printf("%d: GetAllFormats\r\n", this);
+        fflush(stdout);
+        formats[0] = data_format_internal;
+        formats[1] = wxDF_FILENAME;
+    }
+
+
+    // get the (total) size of data for the given format
+    virtual size_t GetDataSize(const wxDataFormat &format) const {
+        printf("%d: GetDataSize\r\n", this);
+        fflush(stdout);
+        if (format == wxDF_FILENAME) {
+            if (this->file_fetcher_cb_) {
+                string local_tmp_file_path = this->file_fetcher_cb_();
+                FileDataObject f;
+                f.AddFile(local_tmp_file_path);
+                return f.GetDataSize(wxDF_FILENAME);
+            }
+
+            return this->receiving_file_data_obj_.GetDataSize(wxDF_FILENAME);
+        }
+
+        if (format == data_format_internal) {
+            return this->len;
+        }
+
+        return 0;
+    }
+
+    // copy raw data (in the specified format) to the provided buffer, return
+    // true if data copied successfully, false otherwise
+    virtual bool GetDataHere(const wxDataFormat &format, void *buf) const {
+        printf("%d: GetDataHere(%s)\r\n", this, "");
+        fflush(stdout);
+
+        if (format == wxDF_FILENAME) {
+            string local_tmp_file_path = this->file_fetcher_cb_();
+            FileDataObject f;
+            f.AddFile(local_tmp_file_path);
+            return f.GetDataHere(wxDF_FILENAME, buf);
+        }
+
+        if (format == data_format_internal) {
+            memset((void*)this->data, 0, 1000);
+            memcpy(buf, this->data, this->len);
+            return true;
+        }
+
+        return false;
+    }
+
+    // get data from the buffer of specified length (in the given format),
+    // return true if the data was read successfully, false otherwise
+    virtual bool SetData(const wxDataFormat &format,
+                         size_t len, const void *buf) {
+        printf("%d: SetData(%s)\r\n", this, ""); // format.GetId().ToStdString().c_str()
+        fflush(stdout);
+
+        if (format == wxDF_FILENAME) {
+            return this->receiving_file_data_obj_.SetData(wxDF_FILENAME, len, buf);
+        }
+
+        if (format == data_format_internal) {
+            memcpy(this->data, buf, len);
+            this->len = len;
+            return true;
+        }
+
+        return false;
+    }
+
+    // returns true if this format is supported
+    bool IsSupported(const wxDataFormat &format, Direction dir = Get) const {
+        printf("%d: IsSupported\r\n", this);
+        fflush(stdout);
+
+        if (format == wxDF_FILENAME || format == data_format_internal) {
+            return true;
+        }
+        return false;
+    }
+
+    virtual bool IsSupportedFormat(const wxDataFormat &format, Direction dir = Get) const {
+        printf("%d: IsSupportedFormat(%s)\r\n", this, "");
+        fflush(stdout);
+
+
+        if (format == wxDF_FILENAME || format == data_format_internal) {
+            return true;
+        }
+        return false;
+    }
+
+
+    void AddFile(std::function<string(void)> cb) {
+        this->file_fetcher_cb_ = cb;
+    }
+};
+
+class DropTarget : public wxDropTarget {
+    SftpoguiDataObject* data_object_;
+public:
+
+    DropTarget() : wxDropTarget(new SftpoguiDataObject) {
+        this->data_object_ = dynamic_cast<SftpoguiDataObject*>(this->GetDataObject());
+    }
+
+    virtual bool OnDrop(wxCoord x, wxCoord y) wxOVERRIDE {
+        printf("OnDrop\r\n");
+        fflush(stdout);
+        return true;
+    }
+
+    virtual wxDragResult OnData(wxCoord x, wxCoord y, wxDragResult def) wxOVERRIDE {
+        printf("OnData\r\n");
+        fflush(stdout);
+
+        this->data_object_->SetData(wxDF_FILENAME, 0, "");
+        this->data_object_->SetData(data_format_internal, 0, "");
+        this->GetData();
+
+        printf("GetDataSize(wxDF_FILENAME): %d\r\n", this->data_object_->GetDataSize(wxDF_FILENAME));
+        printf("GetDataSize(sftpgui_internal_...): %d\r\n", this->data_object_->GetDataSize(data_format_internal));
+        fflush(stdout);
+
+        auto file_names = this->data_object_->receiving_file_data_obj_.GetFilenames();
+        for (int i = 0; i < file_names.GetCount(); ++i) {
+            printf("filenames[%d] = %s\r\n", i, file_names[i].GetData().AsChar());
+            fflush(stdout);
+        }
+
+        printf("internal = %s\r\n", this->data_object_->data);
+        fflush(stdout);
+
+    }
+};
+
+
 struct OpenedFile {
     string local_path;
     string remote_path;
@@ -1275,7 +1522,7 @@ struct OpenedFile {
 
 
 // Make for example an error string a little easier on the eyes.
-string prettifySentence(string s) {
+string PrettifySentence(string s) {
     if (s.size() > 0) {
         s[0] = toupper(s[0]);
     }
@@ -1313,6 +1560,8 @@ class SftpguiFrame : public wxFrame {
     int reconnect_timer_countdown_;
     string reconnect_timer_error_ = "";
     string latest_interesting_status_ = "";
+
+    string tmp_downloaded_path_ = "";
 
 public:
     SftpguiFrame(string username, string host, int port, wxConfigBase *config, string local_tmp) : wxFrame(
@@ -1651,6 +1900,85 @@ public:
             this->dir_list_ctrl_->SetFocus();
         });
 
+        // TODO this string should perhaps be unique per instance of sftpgui to prevent dragging accross instances?
+        auto internal_data_format = data_format_internal;
+
+
+        this->dir_list_ctrl_->BindOnBeginDragCb([&](int row) {
+
+            string remote_path = normalize_path(this->current_dir_ + "/" + this->current_dir_list_[row].name_);
+
+            auto cb = [&]() {
+//                if (!wxIsBusy()) {
+//                    wxBeginBusyCursor();
+//                } else {
+//                    return "";
+//                }
+
+                if (!this->tmp_downloaded_path_.empty()) {
+                    return this->tmp_downloaded_path_;
+                }
+
+
+                auto response_channel = make_shared<Channel<bool>>();
+
+                this->SetStatusText(wxString::FromUTF8("Downloading " + remote_path + " ..."));
+                string local_tmp_path = this->DownloadFile(remote_path, response_channel);
+                printf("started download to %s\r\n", local_tmp_path.c_str());
+                fflush(stdout);
+
+                // To control the scope of dialog. It closes when it goes out of scope.
+                {
+                    wxProgressDialog dialog("Downloading",
+                                            "Downloading",
+                                            100,    // range
+                                            this,   // parent
+                                            wxPD_CAN_ABORT |
+                                            wxPD_APP_MODAL |
+                                            //wxPD_AUTO_HIDE | // -- try this as well
+                                            wxPD_SMOOTH // - makes indeterminate mode bar on WinXP very small
+                    );
+
+                    mutex m;
+                    unique_lock<mutex> lock(m);
+                    while (1) {
+                        auto r = response_channel->Get(50);
+
+                        if (r.has_value() && r == true) {
+                            break;
+                        }
+                        dialog.Pulse();
+                    }
+                }
+
+                printf("got wakeup\r\n");
+                fflush(stdout);
+
+                this->tmp_downloaded_path_ = local_tmp_path;
+
+                return local_tmp_path;
+            };
+
+
+            // Use a custom data object so that when dragging within the app we can do things purely remotely, but when
+            // dragging outside of the app we can download the file so we can give the OS a local path.
+            SftpoguiDataObject data_object;
+            data_object.SetData(data_format_internal, strlen(remote_path.c_str()), remote_path.c_str());
+            data_object.AddFile(cb);
+            wxDropSource dragSource(this);
+            dragSource.SetData(data_object);
+            auto r = dragSource.DoDragDrop(wxDrag_DefaultMove);
+            printf("after DoDragDrop %d\r\n", r);
+            fflush(stdout);
+
+            this->tmp_downloaded_path_ = "";
+
+            if (wxIsBusy()) {
+                wxEndBusyCursor();
+            }
+        });
+
+
         panel->SetSizerAndFit(sizer);
 
         // Restore window size and pos. This needs to happen after all controls are added.
@@ -1683,7 +2011,7 @@ public:
             }
             try {
                 remove_all(localPathUnicode(this->local_tmp_));
-            } catch(...) {
+            } catch (...) {
                 // Let it be a best effort. Text editors, etc., could be locking these dirs.
             }
 
@@ -1714,9 +2042,13 @@ public:
             this->SetStatusText(wxString::FromUTF8(this->reconnect_timer_error_ + " Reconnecting..."));
         });
 
+
+        this->SetDropTarget(new DropTarget());
+
         // Start the sftp thread. We will be communicating with it only through message passing.
         this->SetupSftpThreadCallbacks();
-        this->sftp_thread_ = make_unique<future<void>>(async(launch::async, sftpThreadFunc, this, this->sftp_thread_channel_));
+        this->sftp_thread_ = make_unique<future<void>>(
+                async(launch::async, sftpThreadFunc, this, this->sftp_thread_channel_));
         this->sftp_thread_channel_->Put(SftpThreadCmdConnect{this->username_, this->host_, this->port_});
         if (!wxIsBusy()) {
             wxBeginBusyCursor();
@@ -1777,6 +2109,14 @@ private:
             wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseDownload>();
 
+            string d = string(wxDateTime::Now().FormatISOCombined());
+            this->latest_interesting_status_ = "Downloaded " + r.remote_path + " at " + d + ".";
+            this->RefreshDir(this->current_dir_, true);
+
+            if (!r.open_in_editor) {
+                return;
+            }
+
             // Is remote_path already a key in opened_files_local_?
             if (this->opened_files_local_.find(r.remote_path) != this->opened_files_local_.end()) {
                 // Previously downloaded, so just update the modified time.
@@ -1793,9 +2133,6 @@ private:
             string editor = string(this->config_->Read("/editor", ""));
             wxExecute(wxString::FromUTF8(editor + " \"" + r.local_path + "\""), wxEXEC_ASYNC);
 
-            string d = string(wxDateTime::Now().FormatISOCombined());
-            this->latest_interesting_status_ = "Downloaded " + r.remote_path + " at " + d + ".";
-            this->RefreshDir(this->current_dir_, true);
         }, ID_SFTP_THREAD_RESPONSE_DOWNLOAD);
 
         // Sftp thread will trigger this callback after successfully uploading a file.
@@ -1821,7 +2158,8 @@ private:
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxYES_NO | wxICON_ERROR | wxCENTER);
             dialog.SetYesNoLabels("Retry", "Ignore");
             if (dialog.ShowModal() == wxID_YES) {
-                this->DownloadFile(r.remote_path);
+                this->DownloadFileForEditing(
+                        r.remote_path); // TODO dont even give the retry option if not open_in_editor...
             } else {
                 // User requested to ignore this download failure.
                 this->SetStatusText(s);
@@ -1836,7 +2174,8 @@ private:
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxYES_NO | wxICON_ERROR | wxCENTER);
             dialog.SetYesNoLabels("Retry", "Ignore");
             if (dialog.ShowModal() == wxID_YES) {
-                this->DownloadFile(r.remote_path);
+                this->DownloadFileForEditing(
+                        r.remote_path); // TODO dont even give the retry option if not open_in_editor...
             } else {
                 // User requested to ignore this download failure.
                 this->SetStatusText(s);
@@ -1943,7 +2282,7 @@ private:
 
             this->RequestUserAttention(wxUSER_ATTENTION_ERROR);
             auto r = event.GetPayload<SftpThreadResponseError>();
-            auto error = prettifySentence(r.error);
+            auto error = PrettifySentence(r.error);
 
             this->reconnect_timer_error_ = error;
             this->SetStatusText(wxString::FromUTF8(error + " Reconnecting in 5 seconds..."));
@@ -1955,7 +2294,7 @@ private:
         this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
             wxEndBusyCursor();
             auto r = event.GetPayload<SftpThreadResponseError>();
-            auto s = wxString::FromUTF8(prettifySentence(r.error));
+            auto s = wxString::FromUTF8(PrettifySentence(r.error));
             wxMessageDialog dialog(this, s, "Sftpgui Error", wxOK | wxICON_ERROR | wxCENTER);
             dialog.ShowModal();
             this->Close();
@@ -1979,7 +2318,7 @@ private:
                 this->dir_list_ctrl_->Refresh(vector<DirEntry>{});
                 this->RefreshDir(path, false);
             } else {
-                this->DownloadFile(path);
+                this->DownloadFileForEditing(path);
             }
         } catch (...) {
             showException();
@@ -2111,7 +2450,7 @@ private:
         this->dir_list_ctrl_->Refresh(this->current_dir_list_);
     }
 
-    void DownloadFile(string remote_path) {
+    void DownloadFileForEditing(string remote_path) {
         string editor = string(this->config_->Read("/editor", ""));
         if (editor.empty()) {
             string msg = "No text editor configured. Set one in Preferences.";
@@ -2126,10 +2465,26 @@ private:
         // TODO(allan): handle local file creation error seperately from a connection errors
         create_directories(localPathUnicode(local_dir));
 
-        this->sftp_thread_channel_->Put(SftpThreadCmdDownload{local_path, remote_path});
+        this->sftp_thread_channel_->Put(SftpThreadCmdDownload{local_path, remote_path, true});
         if (!wxIsBusy()) {
             wxBeginBusyCursor();
         }
+    }
+
+    string DownloadFile(string remote_path, shared_ptr<Channel<bool>> response_channel) {
+        remote_path = normalize_path(remote_path);
+        string local_path = normalize_path(this->local_tmp_ + "/" + remote_path);
+        string local_dir = normalize_path(local_path + "/..");
+        // TODO(allan): restrict permissions
+        // TODO(allan): handle local file creation error seperately from a connection errors
+        create_directories(localPathUnicode(local_dir));
+
+        this->sftp_thread_channel_->Put(SftpThreadCmdDownload{local_path, remote_path, false, response_channel});
+        if (!wxIsBusy()) {
+            wxBeginBusyCursor();
+        }
+
+        return local_path;
     }
 
     void AddCurDirToHistory() {
