@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=FilesRemote
+Comment=An SFTP file manager
+Icon=FilesRemote
+Exec=/usr/bin/filesremote
+Terminal=false

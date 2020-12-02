@@ -1,0 +1,132 @@
+// Copyright 2020 Allan Riordan Boll
+
+#ifndef SRC_SFTPCONNECTION_H_
+#define SRC_SFTPCONNECTION_H_
+
+#include <wx/secretstore.h>
+
+#include <future>  // NOLINT
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "src/direntry.h"
+#include "src/hostdesc.h"
+#include "src/string.h"
+
+using std::exception;
+using std::function;
+using std::optional;
+using std::string;
+using std::vector;
+
+class DownloadFailed : public exception {
+public:
+    string remote_path_;
+
+    explicit DownloadFailed(string remote_path) : remote_path_(remote_path) {}
+};
+
+class DownloadFailedPermission : public exception {
+public:
+    string remote_path_;
+
+    explicit DownloadFailedPermission(string remote_path) : remote_path_(remote_path) {}
+};
+
+class UploadFailed : public exception {
+public:
+    string remote_path_;
+
+    explicit UploadFailed(string remote_path) : remote_path_(remote_path) {}
+};
+
+class FailedPermission : public exception {
+public:
+    string remote_path_;
+
+    explicit FailedPermission(string remote_path) : remote_path_(remote_path) {}
+};
+
+class UploadFailedSpace : public exception {
+public:
+    string remote_path_;
+
+    explicit UploadFailedSpace(string remote_path) : remote_path_(remote_path) {}
+};
+
+class DirListFailedPermission : public exception {
+public:
+    string remote_path_;
+
+    explicit DirListFailedPermission(string remote_path) : remote_path_(remote_path) {}
+};
+
+class DeleteFailed : public exception {
+public:
+    string remote_path_;
+    string err_;
+
+    explicit DeleteFailed(string remote_path, string err) : remote_path_(remote_path), err_(err) {}
+};
+
+class FileNotFound : public exception {
+public:
+    string remote_path_;
+
+    explicit FileNotFound(string remote_path) : remote_path_(remote_path) {}
+};
+
+class ConnectionError : public exception {
+public:
+    string msg_;
+
+    explicit ConnectionError(string msg) : msg_(msg) {}
+};
+
+class SftpConnection {
+private:
+    LIBSSH2_SESSION *session_ = NULL;
+    LIBSSH2_SFTP *sftp_session_ = NULL;
+    int sock_ = 0;
+
+public:
+    string home_dir_ = "";
+    HostDesc host_desc_;
+    string fingerprint_;
+
+    explicit SftpConnection(HostDesc host_desc);
+
+    vector<DirEntry> GetDir(string path);
+
+    bool DownloadFile(string remote_src_path, string local_dst_path, function<bool(void)> cancelled);
+
+    bool UploadFile(string local_src_path, string remote_dst_path, function<bool(void)> cancelled);
+
+    optional<DirEntry> Stat(string remote_path);
+
+    ~SftpConnection();
+
+    void Rename(string remote_old_path, string remote_new_path);
+
+    void Delete(string remote_path);
+
+    void Mkdir(string remote_path);
+
+    void Mkfile(string remote_path);
+
+    string RealPath(string remote_path);
+
+    bool PasswordAuth(wxSecretValue passwd);
+
+    bool AgentAuth();
+
+    void SendKeepAlive();
+
+private:
+    void SftpSubsystemInit();
+
+    string GetLastErrorMsg();
+};
+
+#endif  // SRC_SFTPCONNECTION_H_

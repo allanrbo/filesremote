@@ -1,0 +1,11 @@
+/.idea
+/cmake-build-debug
+/build*
+*.out
+*.o
+*.exe
+*.dmg
+/*.zip
+/*.tar.gz
+/*.deb
+/mybuild*
