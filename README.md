@@ -38,7 +38,9 @@ E.g. `filesremote 192.168.1.60` or `filesremote user1@192.168.1.60:22`. Defaults
 
 ### MacOS specific
 
-On first run the app will be blocked, because I do not have an Apple Developer account. Unblock it in this System Preferences pages: ![Security & Privacy system preferences page](graphics/mac_security_screenshot.png)
+On first run the app will be blocked, because I do not have an Apple Developer account. Unblock it in this System Preferences pages:
+
+![Security & Privacy system preferences page](graphics/mac_security_screenshot.png)
 
 After starting the app, go to File -> Preferences and set up the path of your text editor. For example for Sublime Text on MacOS this could be:
 
