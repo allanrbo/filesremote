@@ -1,6 +1,8 @@
 FilesRemote
 ===========
 
+[Download](https://github.com/allanrbo/FilesRemote/releases/)
+
 An SFTP (SSH) file manager.
 
  * Edit files like local:
