@@ -44,6 +44,12 @@ string guessTextEditor() {
     if (exists("C:\\Users\\" + user + "\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe")) {
         return "C:\\Users\\" + user + "\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe";
     }
+    if (exists("C:\\Program Files\\Notepad++\\notepad++.exe")) {
+        return "C:\\Program Files\\Notepad++\\notepad++.exe";
+    }
+    if (exists("C:\\Program Files (x86)\\Notepad++\\notepad++.exe")) {
+        return "C:\\Program Files (x86)\\Notepad++\\notepad++.exe";
+    }
 
     return "notepad";
 #elif __WXOSX__

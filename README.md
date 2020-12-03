@@ -1,7 +1,7 @@
 FilesRemote
 ===========
 
-[Download](https://github.com/allanrbo/FilesRemote/releases/)
+[Download](https://github.com/allanrbo/filesremote/releases/)
 
 ---
 
