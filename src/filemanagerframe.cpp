@@ -427,7 +427,7 @@ FileManagerFrame::FileManagerFrame(HostDesc host_desc, wxConfigBase *config, str
         }
         info.SetIcon(icon);
         info.SetVersion(PROJECT_VERSION);
-        info.SetDescription("An SFTP file manager");
+        info.SetDescription("An SSH file manager");
         info.SetCopyright("(C) 2020 Allan Riordan Boll");
         wxAboutBox(info, this);
     }, wxID_ABOUT);
