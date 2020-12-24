@@ -9,7 +9,7 @@
 #include <wx/secretstore.h>
 #include <wx/wx.h>
 
-#include <chrono>
+#include <chrono>  // NOLINT
 #include <memory>
 #include <string>
 #include <variant>
@@ -224,6 +224,36 @@ void sftpThreadFunc(
                                   SftpThreadResponseGoTo{m->remote_path, dir_entry->is_dir_});
                 continue;
             }
+
+            if (get_if<SftpThreadCmdSudo>(&cmd)) {
+                auto m = get_if<SftpThreadCmdSudo>(&cmd);
+                sftp_connection->sudo_passwd_ = m->password;
+
+                if (!sftp_connection->CheckSudoInstalled()) {
+                    string msg = "sudo not found on the remote machine";
+                    respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_FAILED,
+                                      SftpThreadResponseError{msg});
+                    continue;
+                }
+
+                if (sftp_connection->CheckSudoNeedsPasswd()) {
+                    if (!m->password.IsOk() || !sftp_connection->CheckSudoPasswd()) {
+                        respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_NEEDS_PASSWD);
+                        continue;
+                    }
+                }
+
+                sftp_connection->SudoEnter();
+                respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_SUCCEEDED);
+                continue;
+            }
+
+            if (get_if<SftpThreadCmdSudoExit>(&cmd)) {
+                sftp_connection->sudo_passwd_ = wxSecretValue();
+                sftp_connection->SftpSubsystemInit();
+                respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_EXIT_SUCCEEDED);
+                continue;
+            }
         } catch (DownloadFailed e) {
             respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_DOWNLOAD_FAILED,
                               SftpThreadResponseFileError{e.remote_path_, cmd});
@@ -248,6 +278,9 @@ void sftpThreadFunc(
         } catch (FileNotFound e) {
             respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_FILE_NOT_FOUND,
                               SftpThreadResponseFileError{e.remote_path_, cmd});
+        } catch (SudoFailed e) {
+            respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_FAILED,
+                              SftpThreadResponseError{e.msg_});
         } catch (ConnectionError e) {
             respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_ERROR_CONNECTION,
                               SftpThreadResponseError{e.msg_});

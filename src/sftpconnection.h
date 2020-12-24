@@ -84,16 +84,27 @@ public:
     explicit ConnectionError(string msg) : msg_(msg) {}
 };
 
+class SudoFailed : public exception {
+public:
+    string msg_;
+
+    explicit SudoFailed(string msg) : msg_(msg) {}
+};
+
+
 class SftpConnection {
 private:
     LIBSSH2_SESSION *session_ = NULL;
     LIBSSH2_SFTP *sftp_session_ = NULL;
     int sock_ = 0;
+    LIBSSH2_CHANNEL *sudo_channel_ = NULL;
+    LIBSSH2_CHANNEL *non_sudo_channel_ = NULL;
 
 public:
     string home_dir_ = "";
     HostDesc host_desc_;
-    string fingerprint_;
+    string fingerprint_ = "";
+    wxSecretValue sudo_passwd_ = wxSecretValue();
 
     explicit SftpConnection(HostDesc host_desc);
 
@@ -123,10 +134,22 @@ public:
 
     void SendKeepAlive();
 
-private:
+    bool CheckSudoInstalled();
+
+    bool CheckSudoNeedsPasswd();
+
+    bool CheckSudoPasswd();
+
     void SftpSubsystemInit();
 
+    void SudoEnter();
+
+    void SudoExit();
+
+private:
     string GetLastErrorMsg();
+
+    void SendSudoPasswd(LIBSSH2_CHANNEL *channel);
 };
 
 #endif  // SRC_SFTPCONNECTION_H_
