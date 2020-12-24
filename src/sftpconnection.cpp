@@ -164,6 +164,13 @@ SftpConnection::SftpConnection(HostDesc host_desc) {
 
 SftpConnection::~SftpConnection() {
     this->SudoExit();
+    if (this->sudo_channel_) {
+        libssh2_channel_send_eof(this->sudo_channel_);
+        libssh2_channel_wait_eof(this->sudo_channel_);
+        libssh2_channel_close(this->sudo_channel_);
+        libssh2_channel_wait_closed(this->sudo_channel_);
+        libssh2_channel_free(this->sudo_channel_);
+    }
 
     if (this->sftp_session_) {
         libssh2_sftp_shutdown(this->sftp_session_);
@@ -441,7 +448,16 @@ void SftpConnection::Delete(string remote_path) {
 
         remote_path = regex_replace(remote_path, regex("\""), "\\\"");
 
-        if (this->sudo_channel_) {
+        if (this->sudo_) {
+            // Workaround for for edge case of the sudo password changing after the sudo elevation started.
+            if (this->sudo_passwd_.IsOk()) {
+                try {
+                    this->VerifySudoPasswd();
+                } catch(SudoFailed) {
+                    throw ConnectionError("sudo password changed");
+                }
+            }
+
             // -p is the same as --prompt, but the long version doesn't work on for example Debian 6.
             // -S is the same as --stdin, but the long version doesn't work on for example Debian 6.
             rc = libssh2_channel_exec(channel.channel_,
@@ -470,7 +486,9 @@ void SftpConnection::Delete(string remote_path) {
             output += string(buf, n);
         }
 
+        libssh2_channel_wait_eof(channel.channel_);
         libssh2_channel_close(channel.channel_);
+        libssh2_channel_wait_closed(channel.channel_);
         int status = libssh2_channel_get_exit_status(channel.channel_);
         if (status != 0) {
             throw DeleteFailed(remote_path, output);
@@ -651,7 +669,18 @@ static void _htonu32(char *buf, uint32_t value) {
 }
 
 void SftpConnection::SudoEnter() {
-    int rc;
+    if (this->sudo_) {
+        return;
+    }
+
+    if (this->sudo_channel_ != NULL) {
+        // Replace with sudo channel.
+        void **pp = reinterpret_cast<void **>(this->sftp_session_);  // First member of struct LIBSSH2_SFTP is channel.
+        *pp = reinterpret_cast<void *>(this->sudo_channel_);
+
+        this->sudo_ = true;
+        return;
+    }
 
     LIBSSH2_CHANNEL *channel = libssh2_channel_open_session(this->session_);
     if (!channel) {
@@ -679,7 +708,7 @@ void SftpConnection::SudoEnter() {
 
     // -p is the same as --prompt, but the long version doesn't work on for example Debian 6.
     // -S is the same as --stdin, but the long version doesn't work on for example Debian 6.
-    rc = libssh2_channel_exec(channel, ("sudo -p password: -S " + sftp_server_path).c_str());
+    int rc = libssh2_channel_exec(channel, ("sudo -p password: -S " + sftp_server_path).c_str());
     if (rc != 0) {
         string msg = "libssh2_channel_exec failed while starting sudo ";
         msg += sftp_server_path;
@@ -715,13 +744,15 @@ void SftpConnection::SudoEnter() {
     this->non_sudo_channel_ = libssh2_sftp_get_channel(this->sftp_session_);
     this->sudo_channel_ = channel;
 
-    // Replace with new channel.
+    // Replace with sudo channel.
     void **pp = reinterpret_cast<void **>(this->sftp_session_);  // First member of struct LIBSSH2_SFTP is channel.
     *pp = reinterpret_cast<void *>(channel);
+
+    this->sudo_ = true;
 }
 
 void SftpConnection::SudoExit() {
-    if (this->sudo_channel_ == NULL) {
+    if (!this->sudo_) {
         return;
     }
 
@@ -729,13 +760,14 @@ void SftpConnection::SudoExit() {
     void **pp = reinterpret_cast<void **>(this->sftp_session_);  // First member of struct LIBSSH2_SFTP is channel.
     *pp = reinterpret_cast<void *>(this->non_sudo_channel_);
 
-    libssh2_channel_close(this->sudo_channel_);
-    libssh2_channel_free(this->sudo_channel_);
-    this->sudo_channel_ = NULL;
-    this->non_sudo_channel_ = NULL;
+    this->sudo_ = false;
 }
 
 bool SftpConnection::CheckSudoInstalled() {
+    if (this->sudo_channel_ != NULL) {
+        return true;
+    }
+
     ChannelHandle channel(libssh2_channel_open_session(this->session_));
     if (!channel.channel_) {
         throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
@@ -748,6 +780,7 @@ bool SftpConnection::CheckSudoInstalled() {
 
     libssh2_channel_wait_eof(channel.channel_);
     libssh2_channel_close(channel.channel_);
+    libssh2_channel_wait_closed(channel.channel_);
     int status = libssh2_channel_get_exit_status(channel.channel_);
     if (status == 0) {
         return true;
@@ -757,6 +790,10 @@ bool SftpConnection::CheckSudoInstalled() {
 }
 
 bool SftpConnection::CheckSudoNeedsPasswd() {
+    if (this->sudo_channel_ != NULL) {
+        return false;
+    }
+
     ChannelHandle channel(libssh2_channel_open_session(this->session_));
     if (!channel.channel_) {
         throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
@@ -770,6 +807,7 @@ bool SftpConnection::CheckSudoNeedsPasswd() {
 
     libssh2_channel_wait_eof(channel.channel_);
     libssh2_channel_close(channel.channel_);
+    libssh2_channel_wait_closed(channel.channel_);
     int status = libssh2_channel_get_exit_status(channel.channel_);
     if (status != 0) {
         // The sudo command failed, so it probably needed a password.
@@ -779,7 +817,7 @@ bool SftpConnection::CheckSudoNeedsPasswd() {
     return false;
 }
 
-bool SftpConnection::CheckSudoPasswd() {
+void SftpConnection::VerifySudoPasswd() {
     ChannelHandle channel(libssh2_channel_open_session(this->session_));
     if (!channel.channel_) {
         throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
@@ -794,6 +832,7 @@ bool SftpConnection::CheckSudoPasswd() {
 
     this->SendSudoPasswd(channel.channel_);
 
+    // If there's additional stderr AFTER we already interacted with the password prompt, then there's a problem.
     char buf[BUFLEN];
     int n = libssh2_channel_read_stderr(channel.channel_, buf, BUFLEN);
     if (n != 0) {
@@ -803,14 +842,13 @@ bool SftpConnection::CheckSudoPasswd() {
         throw SudoFailed(msg);
     }
 
+    libssh2_channel_wait_eof(channel.channel_);
     libssh2_channel_close(channel.channel_);
+    libssh2_channel_wait_closed(channel.channel_);
     int status = libssh2_channel_get_exit_status(channel.channel_);
     if (status != 0) {
-        // The sudo command failed, so probably the password was wrong or we did not have sudo permissions.
-        return false;
+        throw SudoFailed("failed to verify sudo password");
     }
-
-    return true;
 }
 
 void SftpConnection::SendSudoPasswd(LIBSSH2_CHANNEL *channel) {

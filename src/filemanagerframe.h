@@ -101,6 +101,8 @@ private:
 
     void SetIdleStatusText();
 
+    void RefreshTitle();
+
     void UploadWatchedFile(string remote_path);
 
     void UploadFile(string local_path);

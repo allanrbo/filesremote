@@ -97,6 +97,7 @@ private:
     LIBSSH2_SESSION *session_ = NULL;
     LIBSSH2_SFTP *sftp_session_ = NULL;
     int sock_ = 0;
+    bool sudo_ = false;
     LIBSSH2_CHANNEL *sudo_channel_ = NULL;
     LIBSSH2_CHANNEL *non_sudo_channel_ = NULL;
 
@@ -138,7 +139,7 @@ public:
 
     bool CheckSudoNeedsPasswd();
 
-    bool CheckSudoPasswd();
+    void VerifySudoPasswd();
 
     void SftpSubsystemInit();
 

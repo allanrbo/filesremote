@@ -104,7 +104,7 @@ FileManagerFrame::FileManagerFrame(HostDesc host_desc, wxConfigBase *config, str
 #else
     this->SetIcon(wxIcon(ArtProvider::GetAppIcon()));
 #endif
-    this->SetTitle("FilesRemote - " + this->host_desc_.ToString());
+    this->RefreshTitle();
     this->CreateStatusBar();
 
     // Create menus.
@@ -304,17 +304,15 @@ FileManagerFrame::FileManagerFrame(HostDesc host_desc, wxConfigBase *config, str
         if (this->busy_cursor_) {
             return;
         }
+        this->busy_cursor_ = make_unique<wxBusyCursor>();
 
         if (this->sudo_) {
-            this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), false);
             this->sftp_thread_channel_->Put(SftpThreadCmdSudoExit{});
             return;
         }
 
         this->sftp_thread_channel_->Put(SftpThreadCmdSudo{});
         this->SetStatusText(wxString::FromUTF8("Elevating to root via sudo ..."));
-        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), true);
-        this->busy_cursor_ = make_unique<wxBusyCursor>();
     }, ID_SUDO);
 
     file_menu->AppendSeparator();
@@ -764,12 +762,13 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
             this->opened_files_local_[o.first].upload_requested = false;
         }
 
-        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), false);
 
         this->SetStatusText("Connected. Getting directory list...");
         this->RefreshDir(this->current_dir_, false);
+        this->sudo_ = false;
+        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
+        this->RefreshTitle();
     }, ID_SFTP_THREAD_RESPONSE_CONNECTED);
-
 
     // Sftp thread will trigger this callback when it requires approval of the server fingerprint while connecting.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
@@ -1121,7 +1120,9 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
         auto msg = "Sudo requires a password for root elevation.\n\nEnter password for " + this->host_desc_.username_;
         auto passwd = this->PasswordPrompt(msg, true);
         if (!passwd.IsOk()) {
-            this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), false);
+            this->sudo_ = false;
+            this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
+            this->RefreshTitle();
             this->SetIdleStatusText();
             return;
         }
@@ -1132,15 +1133,18 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
     // Sftp thread will trigger this callback when sudo elevation succeeds.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         this->busy_cursor_ = nullptr;
-        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), true);
         this->sudo_ = true;
+        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
+        this->RefreshTitle();
         this->SetIdleStatusText();
     }, ID_SFTP_THREAD_RESPONSE_SUDO_SUCCEEDED);
 
     // Sftp thread will trigger this callback when sudo elevation fails.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         this->busy_cursor_ = nullptr;
-        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), false);
+        this->sudo_ = false;
+        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
+        this->RefreshTitle();
         auto r = event.GetPayload<SftpThreadResponseError>();
         wxMessageDialog dialog(
                 this,
@@ -1154,8 +1158,9 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
     // Sftp thread will trigger this callback when sudo exit succeeds.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         this->busy_cursor_ = nullptr;
-        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), false);
         this->sudo_ = false;
+        this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
+        this->RefreshTitle();
         this->SetIdleStatusText();
     }, ID_SFTP_THREAD_RESPONSE_SUDO_EXIT_SUCCEEDED);
 
@@ -1230,6 +1235,14 @@ void FileManagerFrame::SetIdleStatusText() {
         s += ". " + this->latest_interesting_status_;
     }
     this->SetStatusText(wxString::FromUTF8(s));
+}
+
+void FileManagerFrame::RefreshTitle() {
+    if (this->sudo_) {
+        this->SetTitle("FilesRemote - " + this->host_desc_.ToString() + " (sudo)");
+    } else {
+        this->SetTitle("FilesRemote - " + this->host_desc_.ToString());
+    }
 }
 
 void FileManagerFrame::UploadWatchedFile(string remote_path) {

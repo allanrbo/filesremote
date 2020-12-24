@@ -227,7 +227,9 @@ void sftpThreadFunc(
 
             if (get_if<SftpThreadCmdSudo>(&cmd)) {
                 auto m = get_if<SftpThreadCmdSudo>(&cmd);
-                sftp_connection->sudo_passwd_ = m->password;
+                if (m->password.IsOk()) {
+                    sftp_connection->sudo_passwd_ = m->password;
+                }
 
                 if (!sftp_connection->CheckSudoInstalled()) {
                     string msg = "sudo not found on the remote machine";
@@ -237,10 +239,12 @@ void sftpThreadFunc(
                 }
 
                 if (sftp_connection->CheckSudoNeedsPasswd()) {
-                    if (!m->password.IsOk() || !sftp_connection->CheckSudoPasswd()) {
+                    if (!m->password.IsOk()) {
                         respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_NEEDS_PASSWD);
                         continue;
                     }
+
+                    sftp_connection->VerifySudoPasswd();
                 }
 
                 sftp_connection->SudoEnter();
@@ -249,8 +253,7 @@ void sftpThreadFunc(
             }
 
             if (get_if<SftpThreadCmdSudoExit>(&cmd)) {
-                sftp_connection->sudo_passwd_ = wxSecretValue();
-                sftp_connection->SftpSubsystemInit();
+                sftp_connection->SudoExit();
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_EXIT_SUCCEEDED);
                 continue;
             }
@@ -285,7 +288,7 @@ void sftpThreadFunc(
             respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_ERROR_CONNECTION,
                               SftpThreadResponseError{e.msg_});
         } catch (exception e) {
-            respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_ERROR_AUTH,
+            respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_ERROR_CONNECTION,
                               SftpThreadResponseError{e.what()});
         }
     }
