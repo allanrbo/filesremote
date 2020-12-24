@@ -37,6 +37,8 @@ using std::function;
 using std::nullopt;
 using std::optional;
 using std::regex;
+using std::regex_replace;
+using std::regex_search;
 using std::string;
 using std::stringstream;
 using std::to_string;
@@ -133,7 +135,6 @@ SftpConnection::SftpConnection(HostDesc host_desc) {
 
     libssh2_session_set_blocking(this->session_, 1);
     libssh2_session_set_timeout(this->session_, 10 * 1000);  // TODO(allan): higher timeout?
-
     libssh2_session_banner_set(this->session_, "SSH-2.0-FilesRemote_" PROJECT_VERSION);
 
     rc = libssh2_session_handshake(this->session_, this->sock_);
@@ -159,9 +160,26 @@ SftpConnection::SftpConnection(HostDesc host_desc) {
         this->fingerprint_ = hostkey_algo_names[i] + ":" + b;
         break;
     }
+
+    this->userauth_list = libssh2_userauth_list(
+            this->session_,
+            this->host_desc_.username_.c_str(),
+            this->host_desc_.username_.length());
+    if (this->userauth_list == NULL) {
+        throw ConnectionError("no authentication options");
+    }
 }
 
 SftpConnection::~SftpConnection() {
+    this->SudoExit();
+    if (this->sudo_channel_) {
+        libssh2_channel_send_eof(this->sudo_channel_);
+        libssh2_channel_wait_eof(this->sudo_channel_);
+        libssh2_channel_close(this->sudo_channel_);
+        libssh2_channel_wait_closed(this->sudo_channel_);
+        libssh2_channel_free(this->sudo_channel_);
+    }
+
     if (this->sftp_session_) {
         libssh2_sftp_shutdown(this->sftp_session_);
     }
@@ -267,11 +285,12 @@ vector<DirEntry> SftpConnection::GetDir(string path) {
 }
 
 bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path, function<bool(void)> cancelled) {
-    auto sftp_handle_ = SftpHandle(libssh2_sftp_open(
-            this->sftp_session_,
-            remote_src_path.c_str(),
-            LIBSSH2_FXF_READ,
-            0));
+    auto sftp_handle_ = SftpHandle(
+            libssh2_sftp_open(
+                    this->sftp_session_,
+                    remote_src_path.c_str(),
+                    LIBSSH2_FXF_READ,
+                    0));
     if (!sftp_handle_.handle_) {
         if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
             uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
@@ -314,11 +333,12 @@ bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path,
 
 bool SftpConnection::UploadFile(string local_src_path, string remote_dst_path, function<bool(void)> cancelled) {
     int mode = LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH;
-    auto sftp_openfile_handle_ = SftpHandle(libssh2_sftp_open(
-            this->sftp_session_,
-            remote_dst_path.c_str(),
-            LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC | LIBSSH2_FXF_CREAT,
-            mode));
+    auto sftp_openfile_handle_ = SftpHandle(
+            libssh2_sftp_open(
+                    this->sftp_session_,
+                    remote_dst_path.c_str(),
+                    LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC | LIBSSH2_FXF_CREAT,
+                    mode));
     if (!sftp_openfile_handle_.handle_) {
         if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
             uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
@@ -375,16 +395,18 @@ bool SftpConnection::UploadFile(string local_src_path, string remote_dst_path, f
 }
 
 optional<DirEntry> SftpConnection::Stat(string remote_path) {
-    auto sftp_handle_ = SftpHandle(libssh2_sftp_open(
-            this->sftp_session_,
-            remote_path.c_str(),
-            0,
-            0));
+    auto sftp_handle_ = SftpHandle(
+            libssh2_sftp_open(
+                    this->sftp_session_,
+                    remote_path.c_str(),
+                    0,
+                    0));
+
     if (!sftp_handle_.handle_) {
         if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
             uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
             if (err == LIBSSH2_FX_PERMISSION_DENIED || err == LIBSSH2_FX_WRITE_PROTECT) {
-                throw DownloadFailedPermission(remote_path);
+                throw FailedPermission(remote_path);
             }
             return nullopt;
         }
@@ -417,31 +439,67 @@ void SftpConnection::Rename(string remote_old_path, string remote_new_path) {
 void SftpConnection::Delete(string remote_path) {
     int rc;
 
-    ChannelHandle channel(libssh2_channel_open_session(this->session_));
-    if (!channel.channel_) {
-        throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
-    }
-
-    remote_path = regex_replace(remote_path, regex("\""), "\\\"");
-    rc = libssh2_channel_exec(channel.channel_, ("rm -fr \"" + remote_path + "\"").c_str());
-    if (rc != 0) {
-        throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
-    }
-
-    char buf[BUFLEN];
-    string output = "";
-    while (1) {
-        int n = libssh2_channel_read_stderr(channel.channel_, buf, BUFLEN);
-        if (n == 0) {
-            break;
+    auto entry = this->Stat(remote_path);
+    if (entry.has_value() && !entry->is_dir_) {  // Single files are easiest to just do via the SFTP channel.
+        rc = libssh2_sftp_unlink(this->sftp_session_, remote_path.c_str());
+        if (rc != 0) {
+            if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
+                uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
+                if (err == LIBSSH2_FX_PERMISSION_DENIED || err == LIBSSH2_FX_WRITE_PROTECT) {
+                    throw FailedPermission(remote_path.c_str());
+                }
+            }
+            throw DeleteFailed(remote_path, this->GetLastErrorMsg());
         }
-        output += string(buf, n);
-    }
+    } else if (entry.has_value() && entry->is_dir_) {  // Directories need to be deleted recursively, so do via rm cmd.
+        // Workaround for for edge case of the sudo password changing after the sudo elevation started.
+        this->VerifySudoStillValid();
 
-    libssh2_channel_close(channel.channel_);
-    int status = libssh2_channel_get_exit_status(channel.channel_);
-    if (status != 0) {
-        throw DeleteFailed(remote_path, output);
+        ChannelHandle channel(libssh2_channel_open_session(this->session_));
+        if (!channel.channel_) {
+            throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
+        }
+
+        remote_path = regex_replace(remote_path, regex("\""), "\\\"");
+
+        if (this->sudo_) {
+            // -p is the same as --prompt, but the long version doesn't work on for example Debian 6.
+            // -S is the same as --stdin, but the long version doesn't work on for example Debian 6.
+            string cmd = "sudo -p password: -S rm -fr \"" + remote_path + "\"";
+            rc = libssh2_channel_exec(channel.channel_,cmd.c_str());
+            if (rc != 0) {
+                throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
+            }
+
+            if (this->sudo_passwd_.IsOk()) {
+                this->SendSudoPasswd(channel.channel_);
+            }
+        } else {
+            rc = libssh2_channel_exec(channel.channel_, ("rm -fr \"" + remote_path + "\"").c_str());
+            if (rc != 0) {
+                throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
+            }
+        }
+
+        char buf[BUFLEN];
+        string output = "";
+        while (1) {
+            int n = libssh2_channel_read_stderr(channel.channel_, buf, BUFLEN);
+            if (n == 0) {
+                break;
+            }
+            output += string(buf, n);
+        }
+
+        libssh2_channel_wait_eof(channel.channel_);
+        libssh2_channel_close(channel.channel_);
+        libssh2_channel_wait_closed(channel.channel_);
+        int status = libssh2_channel_get_exit_status(channel.channel_);
+        if (status != 0) {
+            throw DeleteFailed(remote_path, output);
+        }
+    } else {
+        throw DeleteFailed(remote_path, "File not found.");
     }
 }
 
@@ -463,11 +521,12 @@ void SftpConnection::Mkdir(string remote_path) {
 
 void SftpConnection::Mkfile(string remote_path) {
     int mode = LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH;
-    auto sftp_openfile_handle_ = SftpHandle(libssh2_sftp_open(
-            this->sftp_session_,
-            remote_path.c_str(),
-            LIBSSH2_FXF_CREAT,
-            mode));
+    auto sftp_openfile_handle_ = SftpHandle(
+            libssh2_sftp_open(
+                    this->sftp_session_,
+                    remote_path.c_str(),
+                    LIBSSH2_FXF_WRITE | LIBSSH2_FXF_TRUNC | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_EXCL,
+                    mode));
     if (!sftp_openfile_handle_.handle_) {
         if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
             uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
@@ -494,27 +553,70 @@ string SftpConnection::RealPath(string remote_path) {
     return string(buf, rc);
 }
 
-bool SftpConnection::PasswordAuth(wxSecretValue passwd) {
-    // TODO(allan): check first if password auth is even supported...
-    //// char *userauthlist = libssh2_userauth_list(this->session, username.c_str(), username.size());
+static char *kbd_callback_passwd = NULL;
+static int kbd_callback_passwd_len = 0;
 
+static void kbd_callback(
+        const char *name,
+        int name_len,
+        const char *instruction,
+        int instruction_len,
+        int num_prompts,
+        const LIBSSH2_USERAUTH_KBDINT_PROMPT *prompts,
+        LIBSSH2_USERAUTH_KBDINT_RESPONSE *responses,
+        void **abstract) {
+    // Assume that the keyboard-interactive will simply be a single password prompt.
+    if (num_prompts != 1 || !regex_search(string(prompts[0].text, prompts[0].length), regex("[Pp]assword"))) {
+        return;
+    }
+
+    responses[0].text = kbd_callback_passwd;
+    responses[0].length = kbd_callback_passwd_len;
+}
+
+bool SftpConnection::PasswordAuth(wxSecretValue passwd) {
     auto p = reinterpret_cast<const char *>(passwd.GetData());
-    char *s = reinterpret_cast<char *>(malloc(passwd.GetSize() + 1));
-    memcpy(s, p, passwd.GetSize());
-    s[passwd.GetSize()] = 0;  // Null terminate.
-    int rc = libssh2_userauth_password(this->session_, this->host_desc_.username_.c_str(), s);
-    wxSecretValue::Wipe(passwd.GetSize() + 1, s);
-    free(s);
-    if (rc) {
+
+    if (regex_search(this->userauth_list, regex("(^|,)password($|,)"))) {
+        char *s = reinterpret_cast<char *>(malloc(passwd.GetSize() + 1));
+        memcpy(s, p, passwd.GetSize());
+        s[passwd.GetSize()] = 0;  // Null terminate.
+        int rc = libssh2_userauth_password(this->session_, this->host_desc_.username_.c_str(), s);
+        wxSecretValue::Wipe(passwd.GetSize() + 1, s);
+        free(s);
+        if (rc == LIBSSH2_ERROR_AUTHENTICATION_FAILED) {
+            return false;
+        } else if (rc) {
+            throw ConnectionError("libssh2_userauth_password failed. " + this->GetLastErrorMsg());
+        }
+    } else if (regex_search(this->userauth_list, regex("(^|,)keyboard-interactive($|,)"))) {
+        // libssh2 documentation says it will free this memory.
+        kbd_callback_passwd = reinterpret_cast<char *>(malloc(passwd.GetSize()));
+        memcpy(kbd_callback_passwd, p, passwd.GetSize());
+        kbd_callback_passwd_len = passwd.GetSize();
+        int rc = libssh2_userauth_keyboard_interactive(
+                this->session_,
+                this->host_desc_.username_.c_str(),
+                &kbd_callback);
+        kbd_callback_passwd = NULL;
+        kbd_callback_passwd_len = 0;
+        if (rc == LIBSSH2_ERROR_AUTHENTICATION_FAILED) {
+            return false;
+        } else if (rc) {
+            throw ConnectionError("libssh2_userauth_password failed. " + this->GetLastErrorMsg());
+        }
+    } else {
         return false;
     }
+
     this->SftpSubsystemInit();
     return true;
 }
 
 bool SftpConnection::AgentAuth() {
-    // TODO(allan): check first if agent auth is even supported...
-    //// char *userauthlist = libssh2_userauth_list(this->session, username.c_str(), username.size());
+    if (!regex_search(this->userauth_list, regex("(^|,)publickey($|,)"))) {
+        return false;
+    }
 
     LIBSSH2_AGENT *agent = libssh2_agent_init(this->session_);
     if (!agent) {
@@ -547,7 +649,11 @@ bool SftpConnection::AgentAuth() {
 
 void SftpConnection::SendKeepAlive() {
     // The actual libssh2_keepalive_send doesn't really seem to work, so doing this instead as a workaround.
-    this->Stat(".");
+    try {
+        this->RealPath(".");
+    } catch(ConnectionError) {
+        throw ConnectionError("keep-alive failed");
+    }
 }
 
 void SftpConnection::SftpSubsystemInit() {
@@ -557,6 +663,229 @@ void SftpConnection::SftpSubsystemInit() {
     }
 
     this->home_dir_ = this->RealPath(".");
+}
+
+static void _htonu32(char *buf, uint32_t value) {
+    buf[0] = (value >> 24) & 0xFF;
+    buf[1] = (value >> 16) & 0xFF;
+    buf[2] = (value >> 8) & 0xFF;
+    buf[3] = value & 0xFF;
+}
+
+void SftpConnection::SudoEnter() {
+    if (this->sudo_) {
+        return;
+    }
+
+    // Recreating the channel too many times causes the connection to drop, so reuse existing channel instead.
+    if (this->sudo_channel_ != NULL) {
+        // Replace with sudo channel.
+        void **pp = reinterpret_cast<void **>(this->sftp_session_);  // First member of struct LIBSSH2_SFTP is channel.
+        *pp = reinterpret_cast<void *>(this->sudo_channel_);
+
+        this->sudo_ = true;
+        return;
+    }
+
+    LIBSSH2_CHANNEL *channel = libssh2_channel_open_session(this->session_);
+    if (!channel) {
+        throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
+    }
+
+    auto sftp_server_paths = vector<string>{
+            "/usr/lib/sftp-server",
+            "/usr/lib/ssh/sftp-server",
+            "/usr/lib/openssh/sftp-server",
+            "/usr/libexec/sftp-server",
+            "/usr/libexec/ssh/sftp-server",
+            "/usr/libexec/openssh/sftp-server"
+    };
+    string sftp_server_path;
+    for (int i = 0; i < sftp_server_paths.size(); ++i) {
+        if (this->Stat(sftp_server_paths[i]).has_value()) {
+            sftp_server_path = sftp_server_paths[i];
+            break;
+        }
+    }
+    if (sftp_server_path.empty()) {
+        throw SudoFailed("Could not find location of sftp-server for sudo.");
+    }
+
+    // -p is the same as --prompt, but the long version doesn't work on for example Debian 6.
+    // -S is the same as --stdin, but the long version doesn't work on for example Debian 6.
+    int rc = libssh2_channel_exec(channel, ("sudo -p password: -S " + sftp_server_path).c_str());
+    if (rc != 0) {
+        string msg = "libssh2_channel_exec failed while starting sudo ";
+        msg += sftp_server_path;
+        msg += ". ";
+        msg += this->GetLastErrorMsg();
+        throw ConnectionError(msg);
+    }
+
+    if (this->sudo_passwd_.IsOk()) {
+        this->SendSudoPasswd(channel);
+    }
+
+    // Send SSH_FXP_INIT command.
+    char buf[BUFLEN];
+    memset(buf, 0, BUFLEN);
+    _htonu32(buf, 5);  // Cmd length, excluding the length field itself.
+    buf[4] = 1;  // SSH_FXP_INIT
+    _htonu32(buf + 5, LIBSSH2_SFTP_VERSION);
+    rc = libssh2_channel_write(channel, buf, 9);
+    if (rc != 9) {
+        throw SudoFailed("Error while sending SSH_FXP_INIT while establishing sudo sftp-server channel.");
+    }
+
+    memset(buf, 0, BUFLEN);
+    int n = libssh2_channel_read(channel, buf, BUFLEN);
+    if (n == 0) {
+        string msg = "Unexpected output after sending SSH_FXP_INIT while establishing sudo sftp-server channel.";
+        throw SudoFailed(msg);
+    }
+
+    // Keep ref to old non-sudo SFTP channel so we can use it again later if we exit sudo.
+    this->non_sudo_channel_ = libssh2_sftp_get_channel(this->sftp_session_);
+    this->sudo_channel_ = channel;
+
+    // Replace with sudo channel.
+    void **pp = reinterpret_cast<void **>(this->sftp_session_);  // First member of struct LIBSSH2_SFTP is channel.
+    *pp = reinterpret_cast<void *>(channel);
+
+    this->sudo_ = true;
+}
+
+void SftpConnection::SudoExit() {
+    if (!this->sudo_) {
+        return;
+    }
+
+    // Replace with orig channel.
+    void **pp = reinterpret_cast<void **>(this->sftp_session_);  // First member of struct LIBSSH2_SFTP is channel.
+    *pp = reinterpret_cast<void *>(this->non_sudo_channel_);
+
+    this->sudo_ = false;
+}
+
+bool SftpConnection::CheckSudoInstalled() {
+    ChannelHandle channel(libssh2_channel_open_session(this->session_));
+    if (!channel.channel_) {
+        throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
+    }
+
+    int rc = libssh2_channel_exec(channel.channel_, "which sudo");
+    if (rc != 0) {
+        throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
+    }
+
+    libssh2_channel_wait_eof(channel.channel_);
+    libssh2_channel_close(channel.channel_);
+    libssh2_channel_wait_closed(channel.channel_);
+    int status = libssh2_channel_get_exit_status(channel.channel_);
+    if (status == 0) {
+        return true;
+    }
+
+    return false;
+}
+
+bool SftpConnection::CheckSudoNeedsPasswd() {
+    ChannelHandle channel(libssh2_channel_open_session(this->session_));
+    if (!channel.channel_) {
+        throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
+    }
+
+    // -n is the same as --non-interactive, but the long version doesn't work on for example Debian 6.
+    int rc = libssh2_channel_exec(channel.channel_, "sudo -n true");
+    if (rc != 0) {
+        throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
+    }
+
+    libssh2_channel_wait_eof(channel.channel_);
+    libssh2_channel_close(channel.channel_);
+    libssh2_channel_wait_closed(channel.channel_);
+    int status = libssh2_channel_get_exit_status(channel.channel_);
+    if (status != 0) {
+        // The sudo command failed, so it probably needed a password.
+        return true;
+    }
+
+    return false;
+}
+
+void SftpConnection::VerifySudoPasswd() {
+    ChannelHandle channel(libssh2_channel_open_session(this->session_));
+    if (!channel.channel_) {
+        throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
+    }
+
+    // -p is the same as --prompt, but the long version doesn't work on for example Debian 6.
+    // -S is the same as --stdin, but the long version doesn't work on for example Debian 6.
+    int rc = libssh2_channel_exec(channel.channel_, "sudo -p password: -S true");
+    if (rc != 0) {
+        throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
+    }
+
+    this->SendSudoPasswd(channel.channel_);
+
+    // If there's additional stderr AFTER we already interacted with the password prompt, then there's a problem.
+    char buf[BUFLEN];
+    int n = libssh2_channel_read_stderr(channel.channel_, buf, BUFLEN);
+    if (n != 0) {
+        auto msg = string(buf, n);
+        msg = regex_replace(msg, regex("\npassword:"), "");
+        msg = "Output from sudo command:\n" + msg;
+        throw SudoFailed(msg);
+    }
+
+    libssh2_channel_wait_eof(channel.channel_);
+    libssh2_channel_close(channel.channel_);
+    libssh2_channel_wait_closed(channel.channel_);
+    int status = libssh2_channel_get_exit_status(channel.channel_);
+    if (status != 0) {
+        throw SudoFailed("failed to verify sudo password");
+    }
+}
+
+void SftpConnection::SendSudoPasswd(LIBSSH2_CHANNEL *channel) {
+    char buf[BUFLEN];
+
+    memset(buf, 0, BUFLEN);
+    int n = libssh2_channel_read_stderr(channel, buf, BUFLEN);
+    if (n == 0) {
+        throw SudoFailed("Failed to launch sudo.");
+    }
+
+    if (strcmp(buf, "password:") != 0) {
+        throw SudoFailed("Sudo did not show expected password prompt.");
+    }
+
+    int len = this->sudo_passwd_.GetSize() + 1;
+    auto p = reinterpret_cast<const char *>(this->sudo_passwd_.GetData());
+    char *s = reinterpret_cast<char *>(malloc(len));
+    memcpy(s, p, this->sudo_passwd_.GetSize());
+    s[this->sudo_passwd_.GetSize()] = '\n';
+    int rc = libssh2_channel_write(channel, s, len);
+    wxSecretValue::Wipe(this->sudo_passwd_.GetSize() + 1, s);
+    free(s);
+    if (rc != len) {
+        throw ConnectionError(this->GetLastErrorMsg());
+    }
+}
+
+void SftpConnection::VerifySudoStillValid() {
+    if (this->sudo_) {
+        if (this->CheckSudoNeedsPasswd() != this->sudo_passwd_.IsOk()) {
+            throw ConnectionError("sudo password requirement changed");
+        }
+        try {
+            if (this->sudo_passwd_.IsOk()) {
+                this->VerifySudoPasswd();
+            }
+        } catch (SudoFailed) {
+            throw ConnectionError("sudo password changed");
+        }
+    }
 }
 
 string SftpConnection::GetLastErrorMsg() {

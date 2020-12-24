@@ -8,6 +8,7 @@ HFILE=uiicons.data.h
 TANGO_ROOT=tango-icon-theme-0.8.90
 VSCODE_ROOT=vscode-icons
 
+rm $HFILE
 
 function convertIconAtSize() {
     NAME=$1
@@ -48,6 +49,7 @@ convertIcon _rename rename
 convertIcon _delete trash
 convertIcon _upload cloud-upload
 convertIcon _download cloud-download
+convertIcon _sudo shield
 #convertIcon _directory folder
 #convertIcon _file file
 

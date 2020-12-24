@@ -65,6 +65,7 @@ class FileManagerFrame : public wxFrame {
     string local_tmp_;
     wxConfigBase *config_;
     wxToolBarBase *tool_bar_;
+    wxToolBarToolBase* sudo_btn_;
     DirListCtrl *dir_list_ctrl_;
     wxTextCtrl *path_text_ctrl_;
     wxTimer file_watcher_timer_;
@@ -86,6 +87,7 @@ class FileManagerFrame : public wxFrame {
     string reconnect_timer_error_ = "";
     string latest_interesting_status_ = "";
     unique_ptr<wxBusyCursor> busy_cursor_;
+    bool sudo_ = false;
 
 public:
     FileManagerFrame(HostDesc host_desc, wxConfigBase *config, string local_tmp);
@@ -98,6 +100,8 @@ private:
     void ChangeDir(string path);
 
     void SetIdleStatusText();
+
+    void RefreshTitle();
 
     void UploadWatchedFile(string remote_path);
 
@@ -119,7 +123,7 @@ private:
 
     bool ValidateFilename(string filename);
 
-    void PasswordAuthenticate(string msg, bool try_saved);
+    wxSecretValue PasswordPrompt(string msg, bool try_saved);
 
     wxBitmap GetBitmap(const wxArtID &id, const wxArtClient &client, const wxSize &size);
 };

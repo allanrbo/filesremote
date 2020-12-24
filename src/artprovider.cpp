@@ -49,6 +49,7 @@ ArtProvider::ArtProvider() {
     ADD_IMG(_symlink, _symlink)
     ADD_IMG(_file_picture, _file_picture)
     ADD_IMG(_package, _package)
+    ADD_IMG(_sudo, _sudo)
 }
 
 wxBitmap ArtProvider::CreateBitmap(const wxArtID &id, const wxArtClient &client, const wxSize &size) {

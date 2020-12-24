@@ -8,6 +8,7 @@ add_executable(filesremote
         filemanagerframe.cpp filemanagerframe.h
         filesystem.osx.polyfills.h
         hostdesc.cpp hostdesc.h
+        ids.h
         licensestrings.cpp licensestrings.h
         main.cpp
         passworddialog.cpp passworddialog.h

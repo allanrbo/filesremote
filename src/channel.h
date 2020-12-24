@@ -3,7 +3,7 @@
 #ifndef SRC_CHANNEL_H_
 #define SRC_CHANNEL_H_
 
-#include <chrono>
+#include <chrono>  // NOLINT
 #include <condition_variable>  // NOLINT
 #include <list>
 #include <mutex>  // NOLINT
