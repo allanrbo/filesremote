@@ -646,12 +646,14 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
 
         if (this->sftp_thread_channel_) {
             this->sftp_thread_channel_->Put(SftpThreadCmdShutdown{});
+            this->cancellation_channel_->Put(true);
 
             // Unless we never even connected, wait up to 2 seconds.
             if (!this->home_dir_.empty()) {
                 this->sftp_thread_->wait_for(seconds(2));
-                this->sftp_thread_.release();
             }
+
+            this->sftp_thread_.release();
         }
 
         // Save frame position.
