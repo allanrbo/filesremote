@@ -1310,6 +1310,9 @@ void FileManagerFrame::RefreshDir(string remote_path, bool preserve_selection) {
         this->stored_highlighted_ = "";
     }
 
+    this->current_dir_list_.clear();
+    this->SortAndPopulateDir();
+
     this->sftp_thread_channel_->Put(SftpThreadCmdGetDir{remote_path});
 }
 
