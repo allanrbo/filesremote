@@ -64,6 +64,9 @@ string guessTextEditor() {
     if (exists("/usr/bin/subl")) {
         return "/usr/bin/subl";
     }
+    if (exists("/usr/bin/code")) {
+        return "/usr/bin/code";
+    }
     if (exists("/snap/bin/code")) {
         return "/snap/bin/code";
     }
