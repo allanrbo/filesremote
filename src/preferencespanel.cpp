@@ -53,13 +53,13 @@ string guessTextEditor() {
 
     return "notepad";
 #elif __WXOSX__
-    if (exists("/Applications/Sublime Text.app")) {
-            return "open -a \"Sublime Text\"";
-        }
-        if (exists("/Applications/Visual Studio Code.app")) {
-            return "open -a \"Visual Studio Code\"";
-        }
-        return "open -a \"TextEdit\"";
+    if (exists("/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl")) {
+        return "/Applications/Sublime\\ Text.app/Contents/SharedSupport/bin/subl";
+    }
+    if (exists("/Applications/Visual Studio Code.app")) {
+        return "open -a \"Visual Studio Code\"";
+    }
+    return "open -a \"TextEdit\"";
 #else
     if (exists("/usr/bin/subl")) {
         return "/usr/bin/subl";
