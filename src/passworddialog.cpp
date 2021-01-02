@@ -30,6 +30,16 @@ PasswordDialog::PasswordDialog(wxWindow *parent, string msg, bool allow_save) : 
         top_sizer->Add(this->save_passwd_chk_, wxSizerFlags().DoubleBorder(wxTOP | wxLEFT | wxRIGHT));
     }
 
+    this->show_passwd_chk_ = new wxCheckBox(this, wxID_ANY, "Show password");
+    top_sizer->Add(this->show_passwd_chk_, wxSizerFlags().DoubleBorder(wxTOP | wxLEFT | wxRIGHT));
+    this->show_passwd_chk_->Bind(wxEVT_CHECKBOX, [&](wxCommandEvent &) {
+        if (this->show_passwd_chk_->IsChecked()) {
+            this->password_txt_->SetWindowStyleFlag(0 );
+        } else {
+            this->password_txt_->SetWindowStyleFlag(wxTE_PASSWORD);
+        }
+    });
+
     auto button_sizer = CreateSeparatedButtonSizer(wxOK | wxCANCEL);
     top_sizer->Add(button_sizer, wxSizerFlags().DoubleBorder().Expand());
 
