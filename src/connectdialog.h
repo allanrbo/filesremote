@@ -18,7 +18,7 @@ public:
     bool connect_ = false;
     HostDesc host_desc_;
 
-    explicit ConnectDialog(wxConfigBase *config);
+    explicit ConnectDialog(wxWindow *parent, wxConfigBase *config);
 
 private:
     bool Connect();

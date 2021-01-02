@@ -15,8 +15,8 @@
 
 using std::invalid_argument;
 
-ConnectDialog::ConnectDialog(wxConfigBase *config) : wxDialog(
-        NULL,
+ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config) : wxDialog(
+        parent,
         wxID_ANY,
         "Connect to SSH/SFTP server",
         wxDefaultPosition,

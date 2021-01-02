@@ -84,8 +84,13 @@ public:
             config->SetRecordDefaults();
             wxConfigBase::Set(config);
 
+
+            // Note: wxWdigets takes care of deleting this at shutdown.
+            auto frame = new FileManagerFrame(config, local_tmp);
+            frame->Show();
+
             if (this->host_desc_.host_.empty()) {
-                auto connect_dialog = new ConnectDialog(config);
+                auto connect_dialog = new ConnectDialog(frame, config);
 
                 connect_dialog->ShowModal();
                 connect_dialog->Destroy();
@@ -95,9 +100,7 @@ public:
                 this->host_desc_ = connect_dialog->host_desc_;
             }
 
-            // Note: wxWdigets takes care of deleting this at shutdown.
-            auto frame = new FileManagerFrame(this->host_desc_, config, local_tmp);
-            frame->Show();
+            frame->Connect(this->host_desc_);
         } catch (...) {
             showException();
             return false;

@@ -80,14 +80,13 @@ public:
     }
 };
 
-FileManagerFrame::FileManagerFrame(HostDesc host_desc, wxConfigBase *config, string local_tmp) : wxFrame(
+FileManagerFrame::FileManagerFrame(wxConfigBase *config, string local_tmp) : wxFrame(
         NULL,
         wxID_ANY,
         wxEmptyString,
         wxPoint(-1, -1),
         wxSize(800, 600)
 ) {
-    this->host_desc_ = host_desc;
     this->config_ = config;
 
     // Create sub tmp directory for this connection.
@@ -732,6 +731,12 @@ FileManagerFrame::FileManagerFrame(HostDesc host_desc, wxConfigBase *config, str
         this->UploadFile(path);
         return true;
     }));
+}
+
+void FileManagerFrame::Connect(HostDesc host_desc) {
+    this->host_desc_ = host_desc;
+
+    this->RefreshTitle();
 
     // Start the sftp thread. We will be communicating with it only through message passing.
     this->SetupSftpThreadCallbacks();
@@ -1242,7 +1247,9 @@ void FileManagerFrame::SetIdleStatusText() {
 }
 
 void FileManagerFrame::RefreshTitle() {
-    if (this->sudo_) {
+    if (this->host_desc_.host_.empty()) {
+        this->SetTitle("FilesRemote");
+    } else if (this->sudo_) {
         this->SetTitle("FilesRemote - " + this->host_desc_.ToString() + " (sudo)");
     } else {
         this->SetTitle("FilesRemote - " + this->host_desc_.ToString());
