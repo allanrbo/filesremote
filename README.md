@@ -11,6 +11,7 @@ An SSH file manager.
    * Automatically download and open files in any local editor (configurable).
    * Automatically upload when changes are detected.
    * Especially useful on slow and unstable links, where FUSE+SSHFS would cause too big of a slowdown on the local system.
+ * Edit files as root via sudo.
  * Uses SSH auth agent when available, with fallback to password based authentication.
  * Cross platform.
 
