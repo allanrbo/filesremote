@@ -89,7 +89,7 @@ ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config) : wxDialog(
     sizer->Add(bottom_sizer, 0, wxEXPAND | wxALL, 0);
 
 
-    auto add_btn = new wxButton(this, wxID_ANY, "Add");
+    auto add_btn = new wxButton(this, wxID_ANY, "&Add");
     bottom_sizer->Add(add_btn, 0, wxALL, 5);
     add_btn->Bind(wxEVT_BUTTON, [&](wxCommandEvent &event) {
         string host = this->host_txt_->GetValue().ToStdString(wxMBConvUTF8());
@@ -125,8 +125,7 @@ ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config) : wxDialog(
         }
     });
 
-
-    auto remove_btn = new wxButton(this, wxID_ANY, "Remove");
+    auto remove_btn = new wxButton(this, wxID_ANY, "&Remove");
     bottom_sizer->Add(remove_btn, 0, wxTOP | wxBOTTOM | wxRIGHT, 5);
     remove_btn->Bind(wxEVT_BUTTON, [&](wxCommandEvent &evt) {
         int selection = this->favorites_->GetSelection();
@@ -150,10 +149,10 @@ ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config) : wxDialog(
 
     bottom_sizer->AddStretchSpacer();
 
-    auto exit_btn = new wxButton(this, wxID_CANCEL, "Exit");
+    auto exit_btn = new wxButton(this, wxID_CANCEL, "E&xit");
     bottom_sizer->Add(exit_btn, 0, wxALL, 5);
 
-    this->connect_btn_ = new wxButton(this, wxID_OK, "Connect");
+    this->connect_btn_ = new wxButton(this, wxID_OK, "&Connect");
     this->connect_btn_->SetDefault();
     this->SetDefaultItem(this->connect_btn_);
     bottom_sizer->Add(this->connect_btn_, 0, wxTOP | wxBOTTOM | wxRIGHT, 5);
