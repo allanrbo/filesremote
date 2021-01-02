@@ -12,13 +12,13 @@ using std::string;
 // Layout inspired by wxTextEntryDialog, but with the addition of a "remember" checkbox.
 PasswordDialog::PasswordDialog(wxWindow *parent, string msg, bool allow_save) : wxDialog(
         parent, wxID_ANY, "Enter password") {
-    auto top_sizer = new wxBoxSizer(wxVERTICAL);
+    this->top_sizer_ = new wxBoxSizer(wxVERTICAL);
 
-    top_sizer->Add(CreateTextSizer(msg), wxSizerFlags().DoubleBorder());
+    this->top_sizer_->Add(CreateTextSizer(msg), wxSizerFlags().DoubleBorder());
 
     this->password_txt_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
                                          wxSize(300, wxDefaultCoord), wxTE_PASSWORD);
-    top_sizer->Add(this->password_txt_, wxSizerFlags(0).Expand().TripleBorder(wxLEFT | wxRIGHT));
+    this->top_sizer_->Add(this->password_txt_, wxSizerFlags(0).Expand().TripleBorder(wxLEFT | wxRIGHT));
 
     if (allow_save) {
 #ifdef __WXOSX__
@@ -27,27 +27,34 @@ PasswordDialog::PasswordDialog(wxWindow *parent, string msg, bool allow_save) : 
         string s = "Remember this password";
 #endif
         this->save_passwd_chk_ = new wxCheckBox(this, wxID_ANY, s);
-        top_sizer->Add(this->save_passwd_chk_, wxSizerFlags().DoubleBorder(wxTOP | wxLEFT | wxRIGHT));
+        this->top_sizer_->Add(this->save_passwd_chk_, wxSizerFlags().DoubleBorder(wxTOP | wxLEFT | wxRIGHT));
     }
 
     this->show_passwd_chk_ = new wxCheckBox(this, wxID_ANY, "Show password");
-    top_sizer->Add(this->show_passwd_chk_, wxSizerFlags().DoubleBorder(wxTOP | wxLEFT | wxRIGHT));
+    this->top_sizer_->Add(this->show_passwd_chk_, wxSizerFlags().DoubleBorder(wxTOP | wxLEFT | wxRIGHT));
     this->show_passwd_chk_->Bind(wxEVT_CHECKBOX, [&](wxCommandEvent &) {
-        if (this->show_passwd_chk_->IsChecked()) {
-            this->password_txt_->SetWindowStyleFlag(0 );
-        } else {
-            this->password_txt_->SetWindowStyleFlag(wxTE_PASSWORD);
+        long style = 0;  // NOLINT Legacy wxWidgets type.
+        if (!this->show_passwd_chk_->IsChecked()) {
+            style = wxTE_PASSWORD;
         }
+
+
+        auto old = this->password_txt_;
+        this->password_txt_ = new wxTextCtrl(this, wxID_ANY, old->GetValue(), wxDefaultPosition,
+                                             wxSize(300, wxDefaultCoord), style);
+        this->top_sizer_->Replace(old, this->password_txt_);
+        old->Destroy();
+        this->top_sizer_->Layout();
     });
 
     auto button_sizer = CreateSeparatedButtonSizer(wxOK | wxCANCEL);
-    top_sizer->Add(button_sizer, wxSizerFlags().DoubleBorder().Expand());
+    this->top_sizer_->Add(button_sizer, wxSizerFlags().DoubleBorder().Expand());
 
     this->SetAutoLayout(true);
-    this->SetSizer(top_sizer);
+    this->SetSizer(this->top_sizer_);
 
-    top_sizer->SetSizeHints(this);
-    top_sizer->Fit(this);
+    this->top_sizer_->SetSizeHints(this);
+    this->top_sizer_->Fit(this);
 
     this->Center(wxBOTH);
 

@@ -11,6 +11,7 @@
 using std::string;
 
 class PasswordDialog : public wxDialog {
+    wxBoxSizer *top_sizer_;
     wxTextCtrl *password_txt_;
     wxCheckBox *save_passwd_chk_;
     wxCheckBox *show_passwd_chk_;
