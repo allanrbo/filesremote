@@ -1127,6 +1127,7 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
         this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
         this->RefreshTitle();
         this->SetIdleStatusText();
+        this->RefreshDir(this->current_dir_, true);
     }, ID_SFTP_THREAD_RESPONSE_SUDO_SUCCEEDED);
 
     // Sftp thread will trigger this callback when sudo elevation fails.
@@ -1152,6 +1153,7 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
         this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
         this->RefreshTitle();
         this->SetIdleStatusText();
+        this->RefreshDir(this->current_dir_, true);
     }, ID_SFTP_THREAD_RESPONSE_SUDO_EXIT_SUCCEEDED);
 
     // Sftp thread will trigger this callback when a general command was successful (for example rename).
