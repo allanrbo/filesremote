@@ -62,8 +62,6 @@ using std::filesystem::create_directories;
 using std::filesystem::exists;
 using std::filesystem::file_time_type;
 using std::filesystem::last_write_time;
-using std::filesystem::remove;
-using std::filesystem::remove_all;
 #endif
 
 // Drag and drop for uploading.
@@ -80,7 +78,7 @@ public:
     }
 };
 
-FileManagerFrame::FileManagerFrame(wxConfigBase *config, string local_tmp) : wxFrame(
+FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
         NULL,
         wxID_ANY,
         wxEmptyString,
@@ -88,15 +86,6 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config, string local_tmp) : wxF
         wxSize(800, 600)
 ) {
     this->config_ = config;
-
-    // Create sub tmp directory for this connection.
-    local_tmp = normalize_path(local_tmp + "/" + this->host_desc_.ToStringNoCol());
-    this->local_tmp_ = local_tmp;
-    for (int i = 2; exists(localPathUnicode(this->local_tmp_)); i++) {
-        // If another instance is already open and using this path, then choose a different path.
-        this->local_tmp_ = local_tmp + "_" + to_string(i);
-    }
-    create_directories(localPathUnicode(this->local_tmp_));
 
 #ifdef __WXMSW__
     this->SetIcon(wxIcon("aaaa"));
@@ -665,16 +654,6 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config, string local_tmp) : wxF
             }
         }
 
-        // Clean up all files and directories we put there.
-        for (auto o : this->opened_files_local_) {
-            remove(localPathUnicode(o.second.local_path));
-        }
-        try {
-            remove_all(localPathUnicode(this->local_tmp_));
-        } catch (...) {
-            // Let it be a best effort. Text editors, etc., could be locking these dirs.
-        }
-
         // Save frame position.
         int x, y, w, h;
         this->GetClientSize(&w, &h);
@@ -733,8 +712,11 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config, string local_tmp) : wxF
     }));
 }
 
-void FileManagerFrame::Connect(HostDesc host_desc) {
+void FileManagerFrame::Connect(HostDesc host_desc, string local_tmp) {
     this->host_desc_ = host_desc;
+
+    // Use a sub tmp directory with the name of this connection.
+    this->local_tmp_ = normalize_path(local_tmp + "/" + this->host_desc_.ToStringNoCol());
 
     this->RefreshTitle();
 

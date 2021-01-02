@@ -466,7 +466,7 @@ void SftpConnection::Delete(string remote_path) {
             // -p is the same as --prompt, but the long version doesn't work on for example Debian 6.
             // -S is the same as --stdin, but the long version doesn't work on for example Debian 6.
             string cmd = "sudo -p password: -S rm -fr \"" + remote_path + "\"";
-            rc = libssh2_channel_exec(channel.channel_,cmd.c_str());
+            rc = libssh2_channel_exec(channel.channel_, cmd.c_str());
             if (rc != 0) {
                 throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
             }
@@ -651,7 +651,7 @@ void SftpConnection::SendKeepAlive() {
     // The actual libssh2_keepalive_send doesn't really seem to work, so doing this instead as a workaround.
     try {
         this->RealPath(".");
-    } catch(ConnectionError) {
+    } catch (ConnectionError) {
         throw ConnectionError("keep-alive failed");
     }
 }

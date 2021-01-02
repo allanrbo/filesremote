@@ -90,9 +90,9 @@ class FileManagerFrame : public wxFrame {
     bool sudo_ = false;
 
 public:
-    FileManagerFrame(wxConfigBase *config, string local_tmp);
+    explicit FileManagerFrame(wxConfigBase *config);
 
-    void Connect(HostDesc host_desc);
+    void Connect(HostDesc host_desc, string local_tmp);
 
 private:
     void SetupSftpThreadCallbacks();

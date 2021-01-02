@@ -1,6 +1,9 @@
 // Copyright 2020 Allan Riordan Boll
 
+#include <dirent.h>
+
 #include <exception>
+#include <regex>  // NOLINT
 #include <sstream>
 #include <string>
 
@@ -20,6 +23,7 @@
 #include <wx/cmdline.h>
 #include <wx/fileconf.h>
 #include <wx/preferences.h>
+#include <wx/process.h>
 #include <wx/secretstore.h>
 #include <wx/snglinst.h>
 #include <wx/stdpaths.h>
@@ -35,11 +39,17 @@
 
 using std::exception;
 using std::invalid_argument;
+using std::regex;
+using std::regex_match;
+using std::runtime_error;
 using std::string;
+using std::smatch;
+using std::to_string;
 using std::vector;
 
 #ifndef __WXOSX__
 using std::filesystem::create_directories;
+using std::filesystem::remove_all;
 #else
 #include "src/filesystem.osx.polyfills.h"
 #endif
@@ -55,6 +65,34 @@ static void showException() {
     }
 
     wxLogError("%s", error);
+}
+
+static void cleanUpOrphanedTmpDirs(string local_tmp) {
+    DIR *d = opendir(local_tmp.c_str());
+    if (!d) {
+        throw runtime_error("failed to open temp dir");
+    }
+    vector<string> to_delete;
+    struct dirent *dir;
+    regex r("filesremote_(\\d+)");
+    while ((dir = readdir(d)) != NULL) {
+        smatch sm;
+        string s = string(dir->d_name);
+        if (regex_match(s.cbegin(), s.cend(), sm, r)) {
+            int pid = stoi(string(sm[1].str()));
+            if (!wxProcess::Exists(pid)) {
+                to_delete.push_back(normalize_path(local_tmp + "/" + dir->d_name));
+            }
+        }
+    }
+    closedir(d);
+    for (int i = 0; i < to_delete.size(); ++i) {
+        try {
+            remove_all(localPathUnicode(to_delete[i]));
+        } catch (...) {
+            // Let it be a best effort. We may not have perm. Text editors, etc., could be locking these dirs.
+        }
+    }
 }
 
 class FilesRemoteApp : public wxApp {
@@ -75,7 +113,8 @@ public:
 
             // Create our tmp directory.
             auto local_tmp = string(wxStandardPaths::Get().GetTempDir());
-            local_tmp = normalize_path(local_tmp + "/filesremote_" + wxGetUserId().ToStdString(wxMBConvUTF8()));
+            cleanUpOrphanedTmpDirs(local_tmp);
+            local_tmp = normalize_path(local_tmp + "/filesremote_" + to_string(wxGetProcessId()));
             create_directories(localPathUnicode(local_tmp));
 
             auto es = wxEmptyString;
@@ -84,9 +123,8 @@ public:
             config->SetRecordDefaults();
             wxConfigBase::Set(config);
 
-
             // Note: wxWdigets takes care of deleting this at shutdown.
-            auto frame = new FileManagerFrame(config, local_tmp);
+            auto frame = new FileManagerFrame(config);
             frame->Show();
 
             if (this->host_desc_.host_.empty()) {
@@ -100,13 +138,26 @@ public:
                 this->host_desc_ = connect_dialog->host_desc_;
             }
 
-            frame->Connect(this->host_desc_);
+            frame->Connect(this->host_desc_, local_tmp);
         } catch (...) {
             showException();
             return false;
         }
 
         return true;
+    }
+
+    int OnExit() {
+        // Clean up our tmp directory.
+        auto local_tmp = string(wxStandardPaths::Get().GetTempDir());
+        local_tmp = normalize_path(local_tmp + "/filesremote_" + to_string(wxGetProcessId()));
+        try {
+            remove_all(localPathUnicode(local_tmp));
+        } catch (...) {
+            // Let it be a best effort. Text editors, etc., could be locking these dirs.
+        }
+
+        return 0;
     }
 
     virtual void OnInitCmdLine(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
