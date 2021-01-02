@@ -1259,6 +1259,9 @@ void FileManagerFrame::OnFileWatcherTimer(const wxTimerEvent &event) {
     for (auto o : this->opened_files_local_) {
         OpenedFile f = o.second;
         auto local_path = f.local_path;
+        if (!exists(localPathUnicode(local_path))) {
+            continue;  // File was deleted by something externally. Nothing we can do about that.
+        }
         if (!f.upload_requested && last_write_time(localPathUnicode(local_path)) > f.modified) {
             this->UploadWatchedFile(f.remote_path);
         }
