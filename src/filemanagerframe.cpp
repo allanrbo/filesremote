@@ -342,6 +342,7 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
     go_menu->Append(ID_PARENT_DIR, "Parent directory\tAlt+Up", wxEmptyString, wxITEM_NORMAL);
 #endif
     this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+        this->latest_interesting_status_ = "";
         this->ChangeDir(normalize_path(this->current_dir_ + "/.."));
     }, ID_PARENT_DIR);
 
@@ -355,10 +356,12 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
             return;
         }
 
-        string dir = this->prev_dirs_.top();
+        this->latest_interesting_status_ = "";
+
+        this->current_dir_ = this->prev_dirs_.top();
         this->prev_dirs_.pop();
         this->fwd_dirs_.push(this->current_dir_);
-        this->RefreshDir(dir, false);
+        this->RefreshDir(this->current_dir_, false);
         this->tool_bar_->EnableTool(wxID_BACKWARD, this->prev_dirs_.size() > 0);
         this->tool_bar_->EnableTool(wxID_FORWARD, this->fwd_dirs_.size() > 0);
     }, wxID_BACKWARD);
@@ -373,10 +376,12 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
             return;
         }
 
-        string dir = this->fwd_dirs_.top();
+        this->latest_interesting_status_ = "";
+
+        this->current_dir_ = this->fwd_dirs_.top();
         this->fwd_dirs_.pop();
         this->prev_dirs_.push(this->current_dir_);
-        this->RefreshDir(dir, false);
+        this->RefreshDir(this->current_dir_, false);
         this->tool_bar_->EnableTool(wxID_BACKWARD, this->prev_dirs_.size() > 0);
         this->tool_bar_->EnableTool(wxID_FORWARD, this->fwd_dirs_.size() > 0);
     }, wxID_FORWARD);
@@ -822,8 +827,14 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         this->busy_cursor_ = nullptr;
         auto r = event.GetPayload<SftpThreadResponseGetDir>();
+
+        // Requested dir changed meanwhile.
+        if (this->current_dir_ != r.dir) {
+            this->RefreshDir(this->current_dir_, false);
+            return;
+        }
+
         this->current_dir_list_ = r.dir_list;
-        this->current_dir_ = r.dir;
         this->path_text_ctrl_->SetValue(wxString::FromUTF8(r.dir));
         this->SortAndPopulateDir();
         this->RecallSelected();
@@ -903,7 +914,6 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
         auto r = event.GetPayload<SftpThreadResponseFollowSymlinkDir>();
         this->busy_cursor_ = nullptr;
         this->latest_interesting_status_ = "Followed directory symlink: " + r.symlink_path;
-        this->SetIdleStatusText();
         this->ChangeDir(r.real_path);
     }, ID_SFTP_THREAD_RESPONSE_FOLLOW_SYMLINK_DIR);
 
