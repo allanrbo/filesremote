@@ -20,6 +20,10 @@
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 
+#include <time.h>
+#include <utime.h>
+#include <sys/stat.h>
+
 #include <future>  // NOLINT
 #include <optional>
 #include <regex>  // NOLINT
@@ -302,31 +306,57 @@ bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path,
         throw ConnectionError(this->GetLastErrorMsg());
     }
 
+    {  // Scoping for local_file_handle_
 #ifdef __WXMSW__
-    auto local_file_handle_ = FileHandle(_wfopen(localPathUnicode(local_dst_path).c_str(), L"wb"));
+        auto local_file_handle_ = FileHandle(_wfopen(localPathUnicode(local_dst_path).c_str(), L"wb"));
 #else
-    auto local_file_handle_ = FileHandle(fopen(local_dst_path.c_str(), "wb"));
+        auto local_file_handle_ = FileHandle(fopen(local_dst_path.c_str(), "wb"));
 #endif
-    // TODO(allan): error handling for fopen.
+        // TODO(allan): error handling for fopen.
 
-    char buf[BUFLEN];
-    while (1) {
-        if (cancelled()) {
-            return false;
-        }
-        int rc = libssh2_sftp_read(sftp_handle_.handle_, buf, BUFLEN);
-        if (rc > 0) {
-            fwrite(buf, 1, rc, local_file_handle_.handle_);
-            // TODO(allan): error handling for fwrite.
-        } else if (rc == 0) {
-            break;
-        } else {
-            if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
-                throw DownloadFailed(remote_src_path);
+        char buf[BUFLEN];
+        while (1) {
+            if (cancelled()) {
+                return false;
             }
-            throw ConnectionError("libssh2_sftp_read failed. " + this->GetLastErrorMsg());
+            int rc = libssh2_sftp_read(sftp_handle_.handle_, buf, BUFLEN);
+            if (rc > 0) {
+                fwrite(buf, 1, rc, local_file_handle_.handle_);
+                // TODO(allan): error handling for fwrite.
+            } else if (rc == 0) {
+                break;
+            } else {
+                if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
+                    throw DownloadFailed(remote_src_path);
+                }
+                throw ConnectionError("libssh2_sftp_read failed. " + this->GetLastErrorMsg());
+            }
         }
     }
+
+    // Get remote modified time.
+    LIBSSH2_SFTP_ATTRIBUTES attrs;
+    if (libssh2_sftp_fstat(sftp_handle_.handle_, &attrs) != 0) {
+        throw ConnectionError(this->GetLastErrorMsg());
+    }
+    DirEntry entry(attrs);
+
+    // Set modified to the remote modified time.
+#ifdef __WXMSW__
+    struct _stat s;
+    _wstat(localPathUnicode(local_dst_path).c_str(), &s);
+    struct _utimbuf t;
+    t.actime = s.st_atime;
+    t.modtime = entry.modified_;
+    _wutime(localPathUnicode(local_dst_path).c_str(), &t);
+#else
+    struct stat s;
+    stat(local_dst_path.c_str(), &s);
+    struct utimbuf t;
+    t.actime = s.st_atime;
+    t.modtime = entry.modified_;
+    utime(local_dst_path.c_str(), &t);
+#endif
 
     return true;
 }
