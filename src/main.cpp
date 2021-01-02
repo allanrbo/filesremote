@@ -129,10 +129,10 @@ public:
 
             if (this->host_desc_.host_.empty()) {
                 auto connect_dialog = new ConnectDialog(frame, config);
-
                 connect_dialog->ShowModal();
                 connect_dialog->Destroy();
                 if (!connect_dialog->connect_) {
+                    frame->Close(true);
                     return true;  // Exit button or ESC was pressed. Not an error.
                 }
                 this->host_desc_ = connect_dialog->host_desc_;
