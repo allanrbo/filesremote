@@ -862,11 +862,8 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
         if (editor.empty()) {
             string msg = "No text editor configured. Set one in Preferences.";
             editor = guessTextEditor();
-            if (!editor.empty()) {
-                msg += "\nDefaulting to \"" + editor + "\".";
-            }
-            wxMessageBox(wxString::FromUTF8(msg), "Text editor configuration", wxOK | wxICON_INFORMATION, this);
             if (editor.empty()) {
+                wxMessageBox(wxString::FromUTF8(msg), "Text editor configuration", wxOK | wxICON_INFORMATION, this);
                 return;
             }
         }
