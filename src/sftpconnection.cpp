@@ -825,22 +825,27 @@ bool SftpConnection::CheckSudoNeedsPasswd() {
         throw ConnectionError("libssh2_channel_open_session failed. " + this->GetLastErrorMsg());
     }
 
-    // -n is the same as --non-interactive, but the long version doesn't work on for example Debian 6.
-    int rc = libssh2_channel_exec(channel.channel_, "sudo -n true");
+    // -p is the same as --prompt, but the long version doesn't work on for example Debian 6.
+    // -S is the same as --stdin, but the long version doesn't work on for example Debian 6.
+    int rc = libssh2_channel_exec(channel.channel_, "sudo -p password: -S /bin/true");
     if (rc != 0) {
         throw ConnectionError("libssh2_channel_exec failed. " + this->GetLastErrorMsg());
     }
 
+    bool needs_password = false;
+    char buf[BUFLEN];
+    memset(buf, 0, BUFLEN);
+    int n = libssh2_channel_read_stderr(channel.channel_, buf, BUFLEN);
+    if (strcmp(buf, "password:") == 0) {
+        needs_password = true;
+    }
+
+    libssh2_channel_send_eof(channel.channel_);
     libssh2_channel_wait_eof(channel.channel_);
     libssh2_channel_close(channel.channel_);
     libssh2_channel_wait_closed(channel.channel_);
-    int status = libssh2_channel_get_exit_status(channel.channel_);
-    if (status != 0) {
-        // The sudo command failed, so it probably needed a password.
-        return true;
-    }
 
-    return false;
+    return needs_password;
 }
 
 void SftpConnection::VerifySudoPasswd() {
