@@ -245,7 +245,9 @@ void sftpThreadFunc(
                     sftp_connection->VerifySudoPasswd();
                 }
 
-                sftp_connection->SudoEnter();
+                bool needs_passwd_again = sftp_connection->CheckSudoNeedsPasswd();
+
+                sftp_connection->SudoEnter(needs_passwd_again);
                 respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_SUDO_SUCCEEDED);
                 continue;
             }

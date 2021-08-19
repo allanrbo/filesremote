@@ -702,7 +702,7 @@ static void _htonu32(char *buf, uint32_t value) {
     buf[3] = value & 0xFF;
 }
 
-void SftpConnection::SudoEnter() {
+void SftpConnection::SudoEnter(bool needs_passwd_again) {
     if (this->sudo_) {
         return;
     }
@@ -752,7 +752,7 @@ void SftpConnection::SudoEnter() {
         throw ConnectionError(msg);
     }
 
-    if (this->sudo_passwd_.IsOk()) {
+    if (needs_passwd_again) {
         this->SendSudoPasswd(channel);
     }
 

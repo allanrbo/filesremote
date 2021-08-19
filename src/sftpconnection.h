@@ -144,7 +144,7 @@ public:
 
     void SftpSubsystemInit();
 
-    void SudoEnter();
+    void SudoEnter(bool needs_passwd_again);
 
     void SudoExit();
 
