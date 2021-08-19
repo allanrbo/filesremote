@@ -428,7 +428,7 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
         info.SetIcon(icon);
         info.SetVersion(PROJECT_VERSION);
         info.SetDescription("An SSH file manager");
-        info.SetCopyright("(C) 2020 Allan Riordan Boll");
+        info.SetCopyright("(C) 2021 Allan Riordan Boll");
         wxAboutBox(info, this);
     }, wxID_ABOUT);
 
