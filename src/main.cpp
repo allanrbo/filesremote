@@ -37,18 +37,21 @@
 #include "src/paths.h"
 #include "src/string.h"
 
+using std::cerr;
+using std::endl;
 using std::exception;
 using std::invalid_argument;
 using std::regex;
 using std::regex_match;
 using std::runtime_error;
-using std::string;
 using std::smatch;
+using std::string;
 using std::to_string;
 using std::vector;
 
 #ifndef __WXOSX__
 using std::filesystem::create_directories;
+using std::filesystem::exists;
 using std::filesystem::remove_all;
 #else
 #include "src/filesystem.osx.polyfills.h"
@@ -97,6 +100,7 @@ static void cleanUpOrphanedTmpDirs(string local_tmp) {
 
 class FilesRemoteApp : public wxApp {
     HostDesc host_desc_;
+    string identity_file_;
 
 public:
     bool OnInit() {
@@ -138,7 +142,7 @@ public:
                 this->host_desc_ = connect_dialog->host_desc_;
             }
 
-            frame->Connect(this->host_desc_, local_tmp);
+            frame->Connect(this->host_desc_, this->identity_file_, local_tmp);
         } catch (...) {
             showException();
             return false;
@@ -164,6 +168,11 @@ public:
         parser.SetSwitchChars(wxT("-"));
         parser.AddParam("[username@]host[:port]", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL);
         parser.AddSwitch("h", "help", "displays help", wxCMD_LINE_OPTION_HELP);
+        parser.AddOption("i",
+                         "identity-file",
+                         "selects a file from which the identity (private key) for public key authentication is read",
+                         wxCMD_LINE_VAL_STRING,
+                         wxCMD_LINE_PARAM_OPTIONAL);
     }
 
     virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
@@ -171,8 +180,19 @@ public:
             try {
                 this->host_desc_ = HostDesc(string(parser.GetParam(0)));
             } catch (invalid_argument &e) {
-                wxLogFatalError(wxString::FromUTF8(e.what()));
+                cerr << e.what() << endl;
                 return false;
+            }
+        }
+
+        auto args = parser.GetArguments();
+        for (auto it = args.begin(); it != args.end(); it++) {
+            if (it->GetKind() == wxCMD_LINE_OPTION && it->GetLongName() == "identity-file") {
+                this->identity_file_ = it->GetStrVal();
+                if (!exists(this->identity_file_)) {
+                    cerr << "identity file not found" << endl;
+                    return false;
+                }
             }
         }
 

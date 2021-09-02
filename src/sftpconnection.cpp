@@ -30,6 +30,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <iostream>
 
 #include "./version.h"
 #include "src/direntry.h"
@@ -675,6 +676,21 @@ bool SftpConnection::AgentAuth() {
 
         prev_identity = identity;
     }
+}
+
+bool SftpConnection::KeyAuth(string identity_file) {
+    int rc = libssh2_userauth_publickey_fromfile(
+            this->session_,
+            this->host_desc_.username_.c_str(),
+            NULL,
+            identity_file.c_str(),
+            NULL);
+    if (rc) {
+        return false;
+    }
+
+    this->SftpSubsystemInit();
+    return true;
 }
 
 void SftpConnection::SendKeepAlive() {

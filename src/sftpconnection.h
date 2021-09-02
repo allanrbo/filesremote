@@ -134,6 +134,8 @@ public:
 
     bool AgentAuth();
 
+    bool KeyAuth(string identity_file);
+
     void SendKeepAlive();
 
     bool CheckSudoInstalled();

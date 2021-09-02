@@ -84,7 +84,19 @@ void sftpThreadFunc(
             }
 
             if (get_if<SftpThreadCmdFingerprintApproved>(&cmd)) {
-                if (!sftp_connection->AgentAuth()) {
+                auto m = get_if<SftpThreadCmdFingerprintApproved>(&cmd);
+
+                bool connected = false;
+
+                if (!m->identity_file.empty() && sftp_connection->KeyAuth(m->identity_file)) {
+                    connected = true;
+                }
+
+                if (!connected && sftp_connection->AgentAuth()) {
+                    connected = true;
+                }
+
+                if (!connected) {
                     respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_NEED_PASSWD);
                     continue;
                 }
