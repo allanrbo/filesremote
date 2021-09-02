@@ -63,6 +63,7 @@ struct OpenedFile {
 class FileManagerFrame : public wxFrame {
     HostDesc host_desc_;
     string identity_file_;
+    wxSecretValue passwd_param_;
     string local_tmp_;
     wxConfigBase *config_;
     wxToolBarBase *tool_bar_;
@@ -93,7 +94,7 @@ class FileManagerFrame : public wxFrame {
 public:
     explicit FileManagerFrame(wxConfigBase *config);
 
-    void Connect(HostDesc host_desc, string identity_file, string local_tmp);
+    void Connect(HostDesc host_desc, string identity_file, wxSecretValue passwd_param, string local_tmp);
 
 private:
     void SetupSftpThreadCallbacks();

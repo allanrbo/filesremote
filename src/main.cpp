@@ -101,6 +101,7 @@ static void cleanUpOrphanedTmpDirs(string local_tmp) {
 class FilesRemoteApp : public wxApp {
     HostDesc host_desc_;
     string identity_file_;
+    wxSecretValue passwd_param_;
 
 public:
     bool OnInit() {
@@ -142,7 +143,7 @@ public:
                 this->host_desc_ = connect_dialog->host_desc_;
             }
 
-            frame->Connect(this->host_desc_, this->identity_file_, local_tmp);
+            frame->Connect(this->host_desc_, this->identity_file_, this->passwd_param_, local_tmp);
         } catch (...) {
             showException();
             return false;
@@ -173,6 +174,12 @@ public:
                          "selects a file from which the identity (private key) for public key authentication is read",
                          wxCMD_LINE_VAL_STRING,
                          wxCMD_LINE_PARAM_OPTIONAL);
+        parser.AddOption(
+                "pw",
+                "password",
+                "password to use for authentication and sudo (WARNING: Insecure! Will appear in your shell history!)",
+                wxCMD_LINE_VAL_STRING,
+                wxCMD_LINE_PARAM_OPTIONAL);
     }
 
     virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
@@ -193,6 +200,10 @@ public:
                     cerr << "identity file not found" << endl;
                     return false;
                 }
+            }
+
+            if (it->GetKind() == wxCMD_LINE_OPTION && it->GetLongName() == "password") {
+                this->passwd_param_ = wxSecretValue(it->GetStrVal());
             }
         }
 

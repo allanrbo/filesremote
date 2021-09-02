@@ -719,9 +719,10 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
     }));
 }
 
-void FileManagerFrame::Connect(HostDesc host_desc, string identity_file, string local_tmp) {
+void FileManagerFrame::Connect(HostDesc host_desc, string identity_file, wxSecretValue passwd_param, string local_tmp) {
     this->host_desc_ = host_desc;
     this->identity_file_ = identity_file;
+    this->passwd_param_ = passwd_param;
 
     // Use a sub tmp directory with the name of this connection.
     this->local_tmp_ = normalize_path(local_tmp + "/" + this->host_desc_.ToStringNoCol());
@@ -816,10 +817,13 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
     // Sftp thread will trigger this callback if it requires a password for the connection.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         this->busy_cursor_ = nullptr;
-        auto passwd = this->PasswordPrompt("Enter password for " + this->host_desc_.ToString(), true);
+        auto passwd = this->passwd_param_;
         if (!passwd.IsOk()) {
-            this->Close();
-            return;
+            passwd = this->PasswordPrompt("Enter password for " + this->host_desc_.ToString(), true);
+            if (!passwd.IsOk()) {
+                this->Close();
+                return;
+            }
         }
         this->sftp_thread_channel_->Put(SftpThreadCmdPassword{passwd});
         this->busy_cursor_ = make_unique<wxBusyCursor>();
@@ -1119,14 +1123,18 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
     // Sftp thread will trigger this callback when sudo required a password.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         this->busy_cursor_ = nullptr;
-        auto msg = "Sudo requires a password for root elevation.\n\nEnter password for " + this->host_desc_.username_;
-        auto passwd = this->PasswordPrompt(msg, true);
+        auto passwd = this->passwd_param_;
         if (!passwd.IsOk()) {
-            this->sudo_ = false;
-            this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
-            this->RefreshTitle();
-            this->SetIdleStatusText();
-            return;
+            auto msg = "Sudo requires a password for root elevation.\n\nEnter password for "
+                       + this->host_desc_.username_;
+            passwd = this->PasswordPrompt(msg, true);
+            if (!passwd.IsOk()) {
+                this->sudo_ = false;
+                this->tool_bar_->ToggleTool(this->sudo_btn_->GetId(), this->sudo_);
+                this->RefreshTitle();
+                this->SetIdleStatusText();
+                return;
+            }
         }
         this->sftp_thread_channel_->Put(SftpThreadCmdSudo{passwd});
         this->busy_cursor_ = make_unique<wxBusyCursor>();
@@ -1192,6 +1200,7 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
     // Sftp thread will trigger this callback on auth errors.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         this->busy_cursor_ = nullptr;
+        this->passwd_param_ = wxSecretValue();
         auto passwd = this->PasswordPrompt(
                 "Failed to authenticate.\n\nEnter password for " + this->host_desc_.ToString(), false);
         if (!passwd.IsOk()) {
