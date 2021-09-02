@@ -96,6 +96,10 @@ void sftpThreadFunc(
                     connected = true;
                 }
 
+                if (!connected && sftp_connection->KeyAuthAutoDetect()) {
+                    connected = true;
+                }
+
                 if (!connected) {
                     respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_NEED_PASSWD);
                     continue;

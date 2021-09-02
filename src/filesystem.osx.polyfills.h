@@ -8,6 +8,8 @@
 
 #include <sys/stat.h>
 
+#include <wx/utils.h>
+
 #include <sstream>
 #include <string>
 

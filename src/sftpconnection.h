@@ -136,6 +136,8 @@ public:
 
     bool KeyAuth(string identity_file);
 
+    bool KeyAuthAutoDetect();
+
     void SendKeepAlive();
 
     bool CheckSudoInstalled();
