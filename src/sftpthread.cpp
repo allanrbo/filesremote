@@ -52,6 +52,17 @@ void sftpThreadFunc(
         return r.has_value() && r;
     };
 
+    auto upload_progress = [&](string remote_path, uint64_t bytes_done, uint64_t bytes_total, uint64_t bytes_per_sec) {
+        respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_UPLOAD_PROGRESS,
+                          SftpThreadResponseProgress{remote_path, bytes_done, bytes_total, bytes_per_sec});
+    };
+
+    auto download_progress = [&](string remote_path, uint64_t bytes_done, uint64_t bytes_total,
+                                 uint64_t bytes_per_sec) {
+        respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_DOWNLOAD_PROGRESS,
+                          SftpThreadResponseProgress{remote_path, bytes_done, bytes_total, bytes_per_sec});
+    };
+
     while (1) {
         auto cmd_opt = cmd_channel->Get(seconds(15));
 
@@ -144,7 +155,11 @@ void sftpThreadFunc(
                     continue;
                 }
 
-                bool completed = sftp_connection->DownloadFile(m->remote_path, m->local_path, cancel);
+                bool completed = sftp_connection->DownloadFile(
+                        m->remote_path,
+                        m->local_path,
+                        cancel,
+                        download_progress);
                 if (completed) {
                     respondToUIThread(
                             response_dest,
@@ -158,7 +173,11 @@ void sftpThreadFunc(
 
             if (get_if<SftpThreadCmdUploadOverwrite>(&cmd)) {
                 auto m = get_if<SftpThreadCmdUploadOverwrite>(&cmd);
-                bool completed = sftp_connection->UploadFile(m->local_path, m->remote_path, cancel);
+                bool completed = sftp_connection->UploadFile(
+                        m->local_path,
+                        m->remote_path,
+                        cancel,
+                        upload_progress);
                 if (completed) {
                     respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_UPLOAD,
                                       SftpThreadResponseUpload{m->remote_path});
@@ -188,7 +207,11 @@ void sftpThreadFunc(
                     continue;
                 }
 
-                bool completed = sftp_connection->UploadFile(m->local_path, m->remote_path, cancel);
+                bool completed = sftp_connection->UploadFile(
+                        m->local_path,
+                        m->remote_path,
+                        cancel,
+                        upload_progress);
                 if (completed) {
                     respondToUIThread(response_dest, ID_SFTP_THREAD_RESPONSE_UPLOAD,
                                       SftpThreadResponseUpload{m->remote_path});

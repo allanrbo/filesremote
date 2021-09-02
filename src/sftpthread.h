@@ -127,6 +127,13 @@ struct SftpThreadResponseFollowSymlinkDir {
     string real_path;
 };
 
+struct SftpThreadResponseProgress {
+    string remote_path;
+    uint64_t bytes_done;
+    uint64_t bytes_total;
+    uint64_t bytes_per_sec;
+};
+
 struct SftpThreadCmdSudo {
     wxSecretValue password;
 };

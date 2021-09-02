@@ -58,6 +58,7 @@ using std::string;
 using std::stringstream;
 using std::to_string;
 using std::vector;
+using std::chrono::steady_clock;
 
 #ifndef __WXOSX__
 using std::filesystem::exists;
@@ -66,6 +67,7 @@ using std::filesystem::exists;
 #endif
 
 #define BUFLEN 4096
+#define LARGE_BUFLEN 65536
 
 // RAII wrapper to ensure LIBSSH2_SFTP_HANDLE gets closed.
 class SftpHandle {
@@ -305,7 +307,11 @@ vector<DirEntry> SftpConnection::GetDir(string path) {
     return files;
 }
 
-bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path, function<bool(void)> cancelled) {
+bool SftpConnection::DownloadFile(
+        string remote_src_path,
+        string local_dst_path,
+        function<bool(void)> cancelled,
+        function<void(string, uint64_t, uint64_t, uint64_t)> progress) {
     auto sftp_handle_ = SftpHandle(
             libssh2_sftp_open(
                     this->sftp_session_,
@@ -323,6 +329,13 @@ bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path,
         throw ConnectionError(this->GetLastErrorMsg());
     }
 
+    // Get remote size and modified time .
+    LIBSSH2_SFTP_ATTRIBUTES attrs;
+    if (libssh2_sftp_fstat(sftp_handle_.handle_, &attrs) != 0) {
+        throw ConnectionError(this->GetLastErrorMsg());
+    }
+    DirEntry entry(attrs);
+
     {  // Scoping for local_file_handle_
 #ifdef __WXMSW__
         auto local_file_handle_ = FileHandle(_wfopen(localPathUnicode(local_dst_path).c_str(), L"wb"));
@@ -331,15 +344,19 @@ bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path,
 #endif
         // TODO(allan): error handling for fopen.
 
-        char buf[BUFLEN];
+        uint64_t received = 0, prev_received = 0;
+        auto start_time = steady_clock::now();
+
+        char buf[LARGE_BUFLEN];
         while (1) {
-            if (cancelled()) {
+            if (cancelled && cancelled()) {
                 return false;
             }
-            int rc = libssh2_sftp_read(sftp_handle_.handle_, buf, BUFLEN);
+            int rc = libssh2_sftp_read(sftp_handle_.handle_, buf, LARGE_BUFLEN);
             if (rc > 0) {
                 fwrite(buf, 1, rc, local_file_handle_.handle_);
                 // TODO(allan): error handling for fwrite.
+                received += rc;
             } else if (rc == 0) {
                 break;
             } else {
@@ -348,15 +365,20 @@ bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path,
                 }
                 throw ConnectionError("libssh2_sftp_read failed. " + this->GetLastErrorMsg());
             }
+
+            auto now = steady_clock::now();
+            auto d = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+            if (d > 500) {
+                if (progress) {
+                    uint64_t bytes_per_sec = static_cast<uint64_t>((static_cast<float>(received - prev_received)) /
+                                                                   (static_cast<float>(d) / 1000.0));
+                    progress(remote_src_path, received, entry.size_, bytes_per_sec);
+                }
+                start_time = now;
+                prev_received = received;
+            }
         }
     }
-
-    // Get remote modified time.
-    LIBSSH2_SFTP_ATTRIBUTES attrs;
-    if (libssh2_sftp_fstat(sftp_handle_.handle_, &attrs) != 0) {
-        throw ConnectionError(this->GetLastErrorMsg());
-    }
-    DirEntry entry(attrs);
 
     // Set modified to the remote modified time.
 #ifdef __WXMSW__
@@ -378,7 +400,11 @@ bool SftpConnection::DownloadFile(string remote_src_path, string local_dst_path,
     return true;
 }
 
-bool SftpConnection::UploadFile(string local_src_path, string remote_dst_path, function<bool(void)> cancelled) {
+bool SftpConnection::UploadFile(
+        string local_src_path,
+        string remote_dst_path,
+        function<bool(void)> cancelled,
+        function<void(string, uint64_t, uint64_t, uint64_t)> progress) {
     int mode = LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH;
     auto sftp_openfile_handle_ = SftpHandle(
             libssh2_sftp_open(
@@ -407,17 +433,24 @@ bool SftpConnection::UploadFile(string local_src_path, string remote_dst_path, f
 #endif
     // TODO(allan): error handling for fopen.
 
-    char buf[BUFLEN];
+    fseek(local_file_handle_.handle_, 0, SEEK_END);
+    uint64_t file_len = ftell(local_file_handle_.handle_);
+    fseek(local_file_handle_.handle_, 0, SEEK_SET);
+
+    auto start_time = steady_clock::now();
+
+    uint64_t sent = 0, prev_sent = 0;
+    char buf[LARGE_BUFLEN];
     while (1) {
-        if (cancelled()) {
+        if (cancelled && cancelled()) {
             return false;
         }
-        int rc = fread(buf, 1, BUFLEN, local_file_handle_.handle_);
+        int rc = fread(buf, 1, LARGE_BUFLEN, local_file_handle_.handle_);
         if (rc > 0) {
-            int nread = rc;
+            int nremain = rc;
             char *p = buf;
-            while (nread) {
-                rc = libssh2_sftp_write(sftp_openfile_handle_.handle_, buf, rc);
+            while (nremain) {
+                rc = libssh2_sftp_write(sftp_openfile_handle_.handle_, buf, nremain);
                 if (rc < 0) {
                     if (libssh2_session_last_errno(this->session_) == LIBSSH2_ERROR_SFTP_PROTOCOL) {
                         uint64_t err = libssh2_sftp_last_error(this->sftp_session_);
@@ -429,12 +462,27 @@ bool SftpConnection::UploadFile(string local_src_path, string remote_dst_path, f
 
                     throw ConnectionError("libssh2_sftp_write failed. " + this->GetLastErrorMsg());
                 }
+
+                sent += rc;
                 p += rc;
-                nread -= rc;
+                nremain -= rc;
             }
         } else {
             // TODO(allan): error handling for fread.
             break;
+        }
+
+        auto now = steady_clock::now();
+        auto d = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+        if (d > 500) {
+            if (progress) {
+                uint64_t bytes_per_sec = static_cast<uint64_t>((static_cast<float>(sent - prev_sent)) /
+                                                               (static_cast<float>(d) / 1000.0));
+
+                progress(remote_dst_path, sent, file_len, bytes_per_sec);
+            }
+            start_time = now;
+            prev_sent = sent;
         }
     }
 

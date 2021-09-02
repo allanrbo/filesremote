@@ -39,6 +39,7 @@
 #include "src/preferencespanel.h"
 #include "src/sftpthread.h"
 #include "src/string.h"
+#include "src/storageunits.h"
 
 using std::chrono::seconds;
 using std::future;
@@ -915,6 +916,24 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
         this->RefreshDir(this->current_dir_, true);
     }, ID_SFTP_THREAD_RESPONSE_CANCELLED);
 
+    // Sftp thread will trigger this callback to indicate progress while uploading a file.
+    this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+        auto r = event.GetPayload<SftpThreadResponseProgress>();
+
+        this->SetStatusText(wxString::FromUTF8(
+                "Uploading " + r.remote_path + ", " + size_string(r.bytes_done) + " of "
+                + size_string(r.bytes_total) + ", " + size_string(r.bytes_per_sec) + "/sec ... Press Esc to cancel."));
+    }, ID_SFTP_THREAD_RESPONSE_UPLOAD_PROGRESS);
+
+    // Sftp thread will trigger this callback to indicate progress while downloading a file.
+    this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
+        auto r = event.GetPayload<SftpThreadResponseProgress>();
+
+        this->SetStatusText(wxString::FromUTF8(
+                "Downloading " + r.remote_path + ", " + size_string(r.bytes_done) + " of "
+                + size_string(r.bytes_total) + ", " + size_string(r.bytes_per_sec) + "/sec ... Press Esc to cancel."));
+    }, ID_SFTP_THREAD_RESPONSE_DOWNLOAD_PROGRESS);
+
     // Sftp thread will trigger this callback when we need to follow a directory symlink.
     this->Bind(wxEVT_THREAD, [&](wxThreadEvent &event) {
         auto r = event.GetPayload<SftpThreadResponseFollowSymlinkDir>();
@@ -1297,7 +1316,7 @@ void FileManagerFrame::RememberSelected() {
     this->stored_highlighted_ = this->current_dir_list_[this->dir_list_ctrl_->GetHighlighted()].name_;
     this->stored_selected_.clear();
     auto r = this->dir_list_ctrl_->GetSelected();
-    for (int i = 0; i < r.size(); ++i) {
+    for (int i = 0 ; i < r.size() ; ++i) {
         this->stored_selected_.insert(this->current_dir_list_[r[i]].name_);
     }
 }
@@ -1305,7 +1324,7 @@ void FileManagerFrame::RememberSelected() {
 void FileManagerFrame::RecallSelected() {
     int highlighted = 0;
     vector<int> selected;
-    for (int i = 0; i < this->current_dir_list_.size(); ++i) {
+    for (int i = 0 ; i < this->current_dir_list_.size() ; ++i) {
         if (this->stored_selected_.find(this->current_dir_list_[i].name_) != this->stored_selected_.end()) {
             selected.push_back(i);
         }

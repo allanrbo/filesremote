@@ -112,9 +112,17 @@ public:
 
     vector<DirEntry> GetDir(string path);
 
-    bool DownloadFile(string remote_src_path, string local_dst_path, function<bool(void)> cancelled);
+    bool DownloadFile(
+            string remote_src_path,
+            string local_dst_path,
+            function<bool(void)> cancelled,
+            function<void(string, uint64_t, uint64_t, uint64_t)> progress);
 
-    bool UploadFile(string local_src_path, string remote_dst_path, function<bool(void)> cancelled);
+    bool UploadFile(
+            string local_src_path,
+            string remote_dst_path,
+            function<bool(void)> cancelled,
+            function<void(string, uint64_t, uint64_t, uint64_t)> progress);
 
     optional<DirEntry> Stat(string remote_path);
 

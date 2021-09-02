@@ -16,6 +16,7 @@ add_executable(filesremote
         preferencespanel.cpp preferencespanel.h
         sftpconnection.cpp sftpconnection.h
         sftpthread.cpp sftpthread.h
+        storageunits.cpp storageunits.h
 
         resource.rc  # Icon and other resources for Windows.
         ${CMAKE_CURRENT_SOURCE_DIR}/../graphics/appicon/icon.icns  # Icon for macOS.
