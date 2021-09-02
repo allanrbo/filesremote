@@ -12,7 +12,7 @@ An SSH file manager.
    * Automatically upload when changes are detected.
    * Especially useful on slow and unstable links, where FUSE+SSHFS would cause too big of a slowdown on the local system.
  * Edit files as root via sudo.
- * Uses SSH auth agent when available, with fallback to password based authentication.
+ * Uses SSH auth agent or public key auth when available, with fallback to password based authentication.
  * Cross platform.
 
 This demo illustrates the automatic upload feature:
