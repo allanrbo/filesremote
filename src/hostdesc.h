@@ -4,19 +4,23 @@
 #define SRC_HOSTDESC_H_
 
 #include <string>
+#include <vector>
 
 using std::string;
+using std::vector;
 
 class HostDesc {
 public:
     string entered_;
-    string host_;
+    string host_;  // This is the DNS name or IP.
+    string display_host_;  // This is what will be in the "Host"-line of ~/.ssh/config.
     string username_;
     int port_ = 22;
+    vector<string> identity_files_;
 
     HostDesc() {}
 
-    explicit HostDesc(string host);
+    explicit HostDesc(string host, string identity_file);
 
     string ToString();
 

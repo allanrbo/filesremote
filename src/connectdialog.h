@@ -6,6 +6,8 @@
 #include <wx/config.h>
 #include <wx/wx.h>
 
+#include <string>
+
 #include "src/hostdesc.h"
 
 class ConnectDialog : public wxDialog {
@@ -17,8 +19,9 @@ class ConnectDialog : public wxDialog {
 public:
     bool connect_ = false;
     HostDesc host_desc_;
+    string identity_file_;
 
-    explicit ConnectDialog(wxWindow *parent, wxConfigBase *config);
+    explicit ConnectDialog(wxWindow *parent, wxConfigBase *config, string identity_file);
 
 private:
     bool Connect();

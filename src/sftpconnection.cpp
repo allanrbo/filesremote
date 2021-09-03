@@ -24,13 +24,9 @@
 #include <utime.h>
 #include <sys/stat.h>
 
-#include <algorithm>
-#include <fstream>
 #include <future>  // NOLINT
-#include <iostream>
 #include <optional>
 #include <regex>  // NOLINT
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -47,8 +43,6 @@
 
 using std::exception;
 using std::function;
-using std::ifstream;
-using std::istringstream;
 using std::nullopt;
 using std::optional;
 using std::regex;
@@ -742,86 +736,21 @@ bool SftpConnection::AgentAuth() {
     }
 }
 
-bool SftpConnection::KeyAuth(string identity_file) {
-    int rc = libssh2_userauth_publickey_fromfile(
-            this->session_,
-            this->host_desc_.username_.c_str(),
-            NULL,
-            identity_file.c_str(),
-            NULL);
-    if (rc) {
-        return false;
-    }
-
-    this->SftpSubsystemInit();
-    return true;
-}
-
-bool SftpConnection::KeyAuthAutoDetect() {
-    string target_host = this->host_desc_.host_;
-    transform(target_host.begin(), target_host.end(), target_host.begin(), ::tolower);
-
-    vector<string> try_key_paths;
-    vector<string> try_ssh_config_paths;
-
-#ifdef __WXMSW__
-    string home = getenv("HOMEPATH");
-    try_ssh_config_paths.push_back("C:\\Program Files\\Git\\etc\\ssh\\ssh_config");
-#else
-    string home = getenv("HOME");
-#endif
-
-    try_ssh_config_paths.push_back(home + "/.ssh/config");
-
-    for (auto path : try_ssh_config_paths) {
+bool SftpConnection::KeyAuth() {
+    for (auto path : this->host_desc_.identity_files_) {
         try {
-            if (!exists(path)) {
-                continue;
-            }
-
-            // Parse the .ssh/config file.
-            ifstream infile(path);
-            string line, cur_host;
-            while (getline(infile, line)) {
-                istringstream iss(line);
-                string cmd;
-                iss >> cmd;
-                transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
-                if (cmd == "host") {
-                    iss >> cur_host;
-                    transform(cur_host.begin(), cur_host.end(), cur_host.begin(), ::tolower);
-                } else if (cmd == "identityfile" && (cur_host == target_host || cur_host.empty())) {
-                    string identity_file;
-                    iss >> identity_file;
-
-                    // Strip quotes.
-                    if (identity_file[0] == '"') {
-                        identity_file = identity_file.substr(1, identity_file.length() - 2);
-                    }
-
-                    // Expand homedir tilde.
-                    if (identity_file[0] == '~') {
-                        identity_file = home + identity_file.substr(1);
-                    }
-
-                    try_key_paths.push_back(identity_file);
+            if (exists(path)) {
+                int rc = libssh2_userauth_publickey_fromfile(
+                        this->session_,
+                        this->host_desc_.username_.c_str(),
+                        NULL,
+                        path.c_str(),
+                        NULL);
+                if (rc) {
+                    continue;
                 }
-            }
-        } catch (...) {
-            // Probably permission error. Continue to try the next config path.
-            continue;
-        }
-    }
 
-    // Additional standard paths to load the key from.
-    try_key_paths.push_back(home + "/.ssh/id_rsa_" + this->host_desc_.host_);  // Observed openssh client use this.
-    try_key_paths.push_back(home + "/.ssh/id_dsa_" + this->host_desc_.host_);
-    try_key_paths.push_back(home + "/.ssh/id_rsa");
-    try_key_paths.push_back(home + "/.ssh/id_dsa");
-
-    for (auto path : try_key_paths) {
-        try {
-            if (exists(path) && this->KeyAuth(path)) {
+                this->SftpSubsystemInit();
                 return true;
             }
         } catch (...) {
@@ -831,7 +760,6 @@ bool SftpConnection::KeyAuthAutoDetect() {
 
     return false;
 }
-
 
 void SftpConnection::SendKeepAlive() {
     // The actual libssh2_keepalive_send doesn't really seem to work, so doing this instead as a workaround.

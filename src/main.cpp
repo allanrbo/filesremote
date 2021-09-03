@@ -133,7 +133,7 @@ public:
             frame->Show();
 
             if (this->host_desc_.host_.empty()) {
-                auto connect_dialog = new ConnectDialog(frame, config);
+                auto connect_dialog = new ConnectDialog(frame, config, this->identity_file_);
                 connect_dialog->ShowModal();
                 connect_dialog->Destroy();
                 if (!connect_dialog->connect_) {
@@ -143,7 +143,7 @@ public:
                 this->host_desc_ = connect_dialog->host_desc_;
             }
 
-            frame->Connect(this->host_desc_, this->identity_file_, this->passwd_param_, local_tmp);
+            frame->Connect(this->host_desc_, this->passwd_param_, local_tmp);
         } catch (...) {
             showException();
             return false;
@@ -183,15 +183,6 @@ public:
     }
 
     virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
-        if (parser.GetParamCount() > 0) {
-            try {
-                this->host_desc_ = HostDesc(string(parser.GetParam(0)));
-            } catch (invalid_argument &e) {
-                cerr << e.what() << endl;
-                return false;
-            }
-        }
-
         auto args = parser.GetArguments();
         for (auto it = args.begin(); it != args.end(); it++) {
             if (it->GetKind() == wxCMD_LINE_OPTION && it->GetLongName() == "identity-file") {
@@ -204,6 +195,15 @@ public:
 
             if (it->GetKind() == wxCMD_LINE_OPTION && it->GetLongName() == "password") {
                 this->passwd_param_ = wxSecretValue(it->GetStrVal());
+            }
+        }
+
+        if (parser.GetParamCount() > 0) {
+            try {
+                this->host_desc_ = HostDesc(string(parser.GetParam(0)), this->identity_file_);
+            } catch (invalid_argument &e) {
+                cerr << e.what() << endl;
+                return false;
             }
         }
 

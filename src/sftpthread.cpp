@@ -99,15 +99,11 @@ void sftpThreadFunc(
 
                 bool connected = false;
 
-                if (!m->identity_file.empty() && sftp_connection->KeyAuth(m->identity_file)) {
-                    connected = true;
-                }
-
                 if (!connected && sftp_connection->AgentAuth()) {
                     connected = true;
                 }
 
-                if (!connected && sftp_connection->KeyAuthAutoDetect()) {
+                if (!connected && sftp_connection->KeyAuth()) {
                     connected = true;
                 }
 

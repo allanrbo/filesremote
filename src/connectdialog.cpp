@@ -15,7 +15,7 @@
 
 using std::invalid_argument;
 
-ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config) : wxDialog(
+ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config, string identity_file) : wxDialog(
         parent,
         wxID_ANY,
         "Connect to SSH/SFTP server",
@@ -23,6 +23,7 @@ ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config) : wxDialog(
         wxSize(400, 400),
         wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER) {
     this->config_ = config;
+    this->identity_file_ = identity_file;
 
 #ifdef __WXMSW__
     this->SetIcon(wxIcon("aaaa"));
@@ -95,7 +96,7 @@ ConnectDialog::ConnectDialog(wxWindow *parent, wxConfigBase *config) : wxDialog(
         string host = this->host_txt_->GetValue().ToStdString(wxMBConvUTF8());
         HostDesc host_desc;
         try {
-            host_desc = HostDesc(host);
+            host_desc = HostDesc(host, this->identity_file_);
         } catch (invalid_argument &e) {
             string err = PrettifySentence(e.what());
             wxMessageDialog dialog(this, err, "Error", wxOK | wxICON_ERROR | wxCENTER);
@@ -173,7 +174,7 @@ bool ConnectDialog::Connect() {
     }
 
     try {
-        this->host_desc_ = HostDesc(this->host_txt_->GetValue().ToStdString(wxMBConvUTF8()));
+        this->host_desc_ = HostDesc(this->host_txt_->GetValue().ToStdString(wxMBConvUTF8()), this->identity_file_);
     } catch (invalid_argument &e) {
         string err = PrettifySentence(e.what());
         wxMessageDialog dialog(this, err, "Error", wxOK | wxICON_ERROR | wxCENTER);

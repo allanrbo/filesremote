@@ -720,9 +720,8 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
     }));
 }
 
-void FileManagerFrame::Connect(HostDesc host_desc, string identity_file, wxSecretValue passwd_param, string local_tmp) {
+void FileManagerFrame::Connect(HostDesc host_desc, wxSecretValue passwd_param, string local_tmp) {
     this->host_desc_ = host_desc;
-    this->identity_file_ = identity_file;
     this->passwd_param_ = passwd_param;
 
     // Use a sub tmp directory with the name of this connection.
@@ -808,7 +807,7 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
                 this->config_->Write(key, wxString::FromUTF8(r.fingerprint));
                 this->config_->Flush();
             }
-            this->sftp_thread_channel_->Put(SftpThreadCmdFingerprintApproved{this->identity_file_});
+            this->sftp_thread_channel_->Put(SftpThreadCmdFingerprintApproved{});
             this->busy_cursor_ = make_unique<wxBusyCursor>();
         } else {
             this->Close();

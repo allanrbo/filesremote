@@ -142,9 +142,7 @@ public:
 
     bool AgentAuth();
 
-    bool KeyAuth(string identity_file);
-
-    bool KeyAuthAutoDetect();
+    bool KeyAuth();
 
     void SendKeepAlive();
 

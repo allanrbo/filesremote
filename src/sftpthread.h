@@ -34,7 +34,6 @@ struct SftpThreadResponseNeedFingerprintApproval {
 };
 
 struct SftpThreadCmdFingerprintApproved {
-    string identity_file;
 };
 
 struct SftpThreadCmdPassword {
