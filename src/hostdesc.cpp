@@ -58,23 +58,49 @@ HostDesc::HostDesc(string host, string identity_file) {
         this->host_ = this->host_.substr(i + 1);
     }
 
-    // Check if there's a port number given.
+    int colon_count = 0;
+    string::size_type pos = 0;
+    while ((pos = this->host_.find(":", pos )) != string::npos) {
+        colon_count++;
+        pos++;
+    }
+
+    string port_string = "";
+    if (colon_count == 1) {
+        // If there is only one colon, this is probably a port delimiter, and not port of an IPv6 address.
+        string::size_type i = this->host_.rfind(":");
+        port_string = string(this->host_.substr(i + 1));
+        this->host_ = this->host_.substr(0, i);
+    } else if (colon_count > 1) {
+        this->is_ipv6_literal_ = true;
+
+        // Is this an IPv6 address like "[2001:db8::1]"?
+        if (this->host_[0] == '[') {
+            string::size_type i = this->host_.rfind("]");
+            if (i != string::npos) {
+                string rest = this->host_.substr(i);
+                this->host_ = this->host_.substr(1, i - 1);
+
+                // Is this an IPv6 address like "[2001:db8::1]:22"?
+                i = rest.rfind(":");
+                if (i != string::npos) {
+                    port_string = string(rest.substr(i + 1));
+                }
+            }
+        }
+    }
+
     bool port_given = false;
-    if (this->host_.find(":") != string::npos) {
+    if (!port_string.empty()) {
         port_given = true;
 
-        int i = this->host_.find(":");
-
-        string ps = string(this->host_.substr(i + 1));
-        if (!all_of(ps.begin(), ps.end(), ::isdigit)) {
+        if (!all_of(port_string.begin(), port_string.end(), ::isdigit)) {
             throw invalid_argument("non-digit port number");
         }
-        this->port_ = stoi(string(ps));
+        this->port_ = stoi(string(port_string));
         if (!(0 < this->port_ && this->port_ < 65536)) {
             throw invalid_argument("invalid port number");
         }
-
-        this->host_ = this->host_.substr(0, i);
     }
 
     // The "Host"-lines in ~/.ssh/config may differ from the actual DNS name or IP in the "HostName" field.
@@ -173,6 +199,11 @@ HostDesc::HostDesc(string host, string identity_file) {
 
 string HostDesc::ToString() {
     string s = this->username_ + "@" + this->host_ + ":" + to_string(this->port_);
+
+    if (this->is_ipv6_literal_) {
+        s = this->username_ + "@[" + this->host_ + "]:" + to_string(this->port_);
+    }
+
     if (this->host_ != this->display_host_) {
         s += " (" + this->display_host_ + ")";
     }
@@ -180,13 +211,27 @@ string HostDesc::ToString() {
 }
 
 string HostDesc::ToStringNoCol() {
+    if (this->is_ipv6_literal_) {
+        string h = std::regex_replace(this->host_, std::regex(":"), ".");
+        return this->username_ + "@[" + h + "]_" + to_string(this->port_);
+    }
+
     return this->username_ + "@" + this->host_ + "_" + to_string(this->port_);
 }
 
 string HostDesc::ToStringNoUser() {
+    if (this->is_ipv6_literal_) {
+        return "[" + this->host_ + "]:" + to_string(this->port_);
+    }
+
     return this->host_ + ":" + to_string(this->port_);
 }
 
 string HostDesc::ToStringNoUserNoCol() {
+    if (this->is_ipv6_literal_) {
+        string h = std::regex_replace(this->host_, std::regex(":"), ".");
+        return "[" + h + "]_" + to_string(this->port_);
+    }
+
     return this->host_ + "_" + to_string(this->port_);
 }

@@ -89,7 +89,7 @@ static void cleanUpOrphanedTmpDirs(string local_tmp) {
         }
     }
     closedir(d);
-    for (int i = 0; i < to_delete.size(); ++i) {
+    for (int i = 0 ; i < to_delete.size() ; ++i) {
         try {
             remove_all(localPathUnicode(to_delete[i]));
         } catch (...) {
@@ -180,11 +180,17 @@ public:
                 "password to use for authentication and sudo (WARNING: Insecure! Will appear in your shell history!)",
                 wxCMD_LINE_VAL_STRING,
                 wxCMD_LINE_PARAM_OPTIONAL);
+        parser.AddUsageText("Example: filesremote example.com");
+        parser.AddUsageText("Example: filesremote 192.168.1.60");
+        parser.AddUsageText("Example: filesremote user1@192.168.1.60:22");
+        parser.AddUsageText("Example: filesremote 2001:db8::1");
+        parser.AddUsageText("Example: filesremote [2001:db8::1]");
+        parser.AddUsageText("Example: filesremote [2001:db8::1]:2222");
     }
 
     virtual bool OnCmdLineParsed(wxCmdLineParser &parser) {  // NOLINT: wxWidgets legacy
         auto args = parser.GetArguments();
-        for (auto it = args.begin(); it != args.end(); it++) {
+        for (auto it = args.begin() ; it != args.end() ; it++) {
             if (it->GetKind() == wxCMD_LINE_OPTION && it->GetLongName() == "identity-file") {
                 this->identity_file_ = it->GetStrVal();
                 if (!exists(this->identity_file_)) {

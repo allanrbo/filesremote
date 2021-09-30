@@ -16,6 +16,7 @@ public:
     string display_host_;  // This is what will be in the "Host"-line of ~/.ssh/config.
     string username_;
     int port_ = 22;
+    bool is_ipv6_literal_ = false;
     vector<string> identity_files_;
 
     HostDesc() {}

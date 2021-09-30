@@ -35,9 +35,21 @@ Linux:
 Usage
 -----
 
-Command line usage: `filesremote [[username@]host[:port]]`.
+Command line usage:
+```
+Usage: filesremote [-h] [-i <str>] [-pw <str>] [[username@]host[:port]]
+  -h, --help                    displays help
+  -i, --identity-file=<str>     selects a file from which the identity (private key) for public key authentication is read
+  -pw, --password=<str>         password to use for authentication and sudo (WARNING: Insecure! Will appear in your shell history!)
+Example: filesremote example.com
+Example: filesremote 192.168.1.60
+Example: filesremote user1@192.168.1.60:22
+Example: filesremote 2001:db8::1
+Example: filesremote [2001:db8::1]
+Example: filesremote [2001:db8::1]:2222
+```
 
-E.g. `filesremote 192.168.1.60` or `filesremote user1@192.168.1.60:22`. Defaults to your local username and port 22.
+Defaults to your local username and port 22 if unspecified.
 
 ### MacOS specific
 

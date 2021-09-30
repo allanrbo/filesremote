@@ -6,7 +6,7 @@ Development
 Get and build the 3rd party dependencies:
 
     # Only on Linux:
-        sudo apt install libssl-dev libsecret-1-dev
+        sudo apt install libssl-dev libsecret-1-dev libgtk-3-dev
 
     # Only on macOS:
         xcode-select --install

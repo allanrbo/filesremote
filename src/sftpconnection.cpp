@@ -5,6 +5,7 @@
 #ifdef __WXMSW__
 
 #include <winsock2.h>
+#include <ws2tcpip.h>
 
 #else
 
@@ -124,25 +125,35 @@ SftpConnection::SftpConnection(HostDesc host_desc) {
         throw ConnectionError("libssh2_init failed. " + this->GetLastErrorMsg());
     }
 
-    this->sock_ = socket(AF_INET, SOCK_STREAM, 0);
+    struct addrinfo *result;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;  // Allow IPv4 or IPv6.
+    hints.ai_socktype = SOCK_STREAM;
 
-    struct sockaddr_in sin;
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(this->host_desc_.port_);
-    sin.sin_addr.s_addr = inet_addr(this->host_desc_.host_.c_str());
-    if (sin.sin_addr.s_addr == INADDR_NONE) {
-        struct hostent *remote_host = gethostbyname(this->host_desc_.host_.c_str());
-        if (!remote_host) {
-            throw ConnectionError(
-                    "failed to resolve hostname " + this->host_desc_.host_ + " (gethostbyname failed)");
-        }
-
-        sin.sin_addr.s_addr = *reinterpret_cast<u_long *>(remote_host->h_addr_list[0]);
+    rc = getaddrinfo(this->host_desc_.host_.c_str(), to_string(this->host_desc_.port_).c_str(), &hints, &result);
+    if (rc != 0) {
+        throw ConnectionError("failed to resolve hostname " + this->host_desc_.host_);
     }
 
-    if (connect(this->sock_, (struct sockaddr *) (&sin), sizeof(struct sockaddr_in)) != 0) {
+    struct addrinfo *rp;
+    for (rp = result ; rp != NULL ; rp = rp->ai_next) {
+        this->sock_ = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (this->sock_ == -1) {
+            continue;
+        }
+
+        if (connect(this->sock_, rp->ai_addr, rp->ai_addrlen) != -1) {
+            break;  // Success
+        }
+
+        close(this->sock_);
+    }
+
+    freeaddrinfo(result);
+    if (rp == NULL) {
         throw ConnectionError(
-                "socket connect failed on " + this->host_desc_.host_ + ":" + to_string(this->host_desc_.port_));
+                "could not connect to " + this->host_desc_.host_ + " on port " + to_string(this->host_desc_.port_));
     }
 
     this->session_ = libssh2_session_init();
@@ -162,7 +173,7 @@ SftpConnection::SftpConnection(HostDesc host_desc) {
     int hostkey_algos[3]{LIBSSH2_HOSTKEY_HASH_SHA256, LIBSSH2_HOSTKEY_HASH_SHA1, LIBSSH2_HOSTKEY_HASH_MD5};
     string hostkey_algo_names[3]{"SHA256", "SHA1", "MD5"};
     int hostkey_algo_keylen[3]{32, 20, 16};
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0 ; i < 3 ; ++i) {
         const char *fingerprint = libssh2_hostkey_hash(this->session_, hostkey_algos[i]);
         if (fingerprint == NULL) {
             continue;
@@ -815,7 +826,7 @@ void SftpConnection::SudoEnter(bool needs_passwd_again) {
             "/usr/libexec/openssh/sftp-server"
     };
     string sftp_server_path;
-    for (int i = 0; i < sftp_server_paths.size(); ++i) {
+    for (int i = 0 ; i < sftp_server_paths.size() ; ++i) {
         if (this->Stat(sftp_server_paths[i]).has_value()) {
             sftp_server_path = sftp_server_paths[i];
             break;
