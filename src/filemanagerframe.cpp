@@ -5,6 +5,7 @@
 #include <wx/aboutdlg.h>
 #include <wx/artprov.h>
 #include <wx/config.h>
+#include <wx/display.h>
 #include <wx/preferences.h>
 #include <wx/stdpaths.h>
 #include <wx/wx.h>
@@ -429,7 +430,7 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
         info.SetIcon(icon);
         info.SetVersion(PROJECT_VERSION);
         info.SetDescription("An SSH file manager");
-        info.SetCopyright("(C) 2021 Allan Riordan Boll");
+        info.SetCopyright("(C) 2022 Allan Riordan Boll");
         wxAboutBox(info, this);
     }, wxID_ABOUT);
 
@@ -643,7 +644,13 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
     int y = this->config_->Read("/window_y", -1);
     int w = this->config_->Read("/window_w", 800);
     int h = this->config_->Read("/window_h", 600);
-    this->Move(x, y);
+
+    auto pos = wxPoint(x, y);
+    if (wxDisplay::GetFromPoint(pos) == wxNOT_FOUND) {
+        pos = wxPoint(-1, -1);
+    }
+
+    this->Move(pos);
     this->SetClientSize(w, h);
 
     this->Bind(wxEVT_CLOSE_WINDOW, [&](wxCloseEvent &event) {
