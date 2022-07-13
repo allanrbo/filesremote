@@ -182,8 +182,10 @@ HostDesc::HostDesc(string host, string identity_file) {
     // Additional standard paths to load the key from.
     this->identity_files_.push_back(home + "/.ssh/id_rsa_" + this->host_);  // Observed openssh client use this.
     this->identity_files_.push_back(home + "/.ssh/id_dsa_" + this->host_);
+    this->identity_files_.push_back(home + "/.ssh/id_ed25519_" + this->host_);
     this->identity_files_.push_back(home + "/.ssh/id_rsa");
     this->identity_files_.push_back(home + "/.ssh/id_dsa");
+    this->identity_files_.push_back(home + "/.ssh/id_ed25519");
 
     // If an identify file was explicitly given as param, then use that instead.
     if (!identity_file.empty()) {
