@@ -666,7 +666,7 @@ static void kbd_callback(
         LIBSSH2_USERAUTH_KBDINT_RESPONSE *responses,
         void **abstract) {
     // Assume that the keyboard-interactive will simply be a single password prompt.
-    if (num_prompts != 1 || !regex_search(string(prompts[0].text, prompts[0].length), regex("[Pp]assword"))) {
+    if (num_prompts != 1 || !regex_search(string((const char*)prompts[0].text, prompts[0].length), regex("[Pp]assword"))) {
         return;
     }
 

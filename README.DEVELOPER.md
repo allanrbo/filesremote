@@ -6,7 +6,7 @@ Development
 Get and build the 3rd party dependencies:
 
     # Only on Linux:
-        sudo apt install libssl-dev libsecret-1-dev libgtk-3-dev
+        sudo apt install libssl-dev libsecret-1-dev libgtk-3-dev cmake
 
     # Only on macOS:
         xcode-select --install
@@ -23,7 +23,6 @@ Get and build the 3rd party dependencies:
         pacman -S mingw-w64-x86_64-toolchain
         pacman -S cmake
         pacman -S git
-
         export PATH="/mingw64/bin:$PATH"
 
 
@@ -36,7 +35,12 @@ Get and build the 3rd party dependencies:
     curl -L -O https://github.com/wxWidgets/wxWidgets/releases/download/v3.1.4/wxWidgets-3.1.4.tar.bz2
     tar -v -xjf wxWidgets-3.1.4.tar.bz2
     cd wxWidgets-3.1.4/
-    ./configure --disable-shared --enable-unicode --without-libjpeg --without-libtiff --with-macosx-version-min=10.13
+    # Mac
+        ./configure --disable-shared --enable-unicode --without-libjpeg --without-libtiff --with-macosx-version-min=10.13
+    # Windows
+        ./configure --disable-shared --enable-unicode --without-libjpeg --without-libtiff --with-msw --build=x86-winnt-mingw32
+    # Linux
+        ./configure --disable-shared --enable-unicode --without-libjpeg --without-libtiff
     # Optional for step-debugging into wxWidgets funcs: --enable-debug
     make -j4
 
@@ -50,7 +54,10 @@ Get and build the 3rd party dependencies:
         export CFLAGS=-mmacosx-version-min=10.13
         export LDFLAGS=-mmacosx-version-min=10.13
     fi
-    ./config
+    # Windows
+        ./configure mingw64
+    # Mac and Linux
+        ./config
     make -j4
 
 
