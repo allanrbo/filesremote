@@ -1,0 +1,4 @@
+# Exclude from languages stats
+graphics/ui/tango-icon-theme-0.8.90/** linguist-vendored
+graphics/ui/vscode-icons/** linguist-vendored
+src/licensestrings.cpp linguist-documentation
