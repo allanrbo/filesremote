@@ -117,6 +117,11 @@ HostDesc::HostDesc(string host, string identity_file) {
 #endif
     try_ssh_config_paths.push_back(home + "/.ssh/config");
 
+    bool hostname_set = false;
+    bool identityfile_set = false;
+    bool user_set = false;
+    bool port_set = false;
+
     // Look through each potential ssh config file.
     for (auto path : try_ssh_config_paths) {
         try {
@@ -132,42 +137,51 @@ HostDesc::HostDesc(string host, string identity_file) {
                 string cmd;
                 iss >> cmd;
                 transform(cmd.begin(), cmd.end(), cmd.begin(), ::tolower);
+
                 if (cmd == "host") {
                     iss >> cur_host;
                     cur_host = strip_quotes(cur_host);
                     transform(cur_host.begin(), cur_host.end(), cur_host.begin(), ::tolower);
-                } else if (cmd == "hostname" && (cur_host == this->display_host_ || cur_host.empty())) {
-                    string hostname;
-                    iss >> hostname;
-                    hostname = strip_quotes(hostname);
-                    this->host_ = hostname;
-                } else if (cmd == "identityfile" && (cur_host == this->display_host_ || cur_host.empty())) {
-                    string identity_file;
-                    iss >> identity_file;
-                    identity_file = strip_quotes(identity_file);
+                }
 
-                    // Expand homedir tilde.
-                    if (identity_file[0] == '~') {
-                        identity_file = home + identity_file.substr(1);
-                    }
+                if (cur_host == this->display_host_ || cur_host.empty() || cur_host == "*") {
+                    if (cmd == "hostname" && !hostname_set) {
+                        hostname_set = true;
+                        string hostname;
+                        iss >> hostname;
+                        hostname = strip_quotes(hostname);
+                        this->host_ = hostname;
+                    } else if (cmd == "identityfile" && !identityfile_set) {
+                        identityfile_set = true;
+                        string identity_file;
+                        iss >> identity_file;
+                        identity_file = strip_quotes(identity_file);
 
-                    this->identity_files_.push_back(identity_file);
-                } else if (cmd == "user" && !username_given && (cur_host == this->display_host_ || cur_host.empty())) {
-                    string user;
-                    iss >> user;
-                    user = strip_quotes(user);
-                    this->username_ = user;
-                } else if (cmd == "port" && !port_given && (cur_host == this->display_host_ || cur_host.empty())) {
-                    string ps;
-                    iss >> ps;
-                    ps = strip_quotes(ps);
+                        // Expand homedir tilde.
+                        if (identity_file[0] == '~') {
+                            identity_file = home + identity_file.substr(1);
+                        }
 
-                    if (!all_of(ps.begin(), ps.end(), ::isdigit)) {
-                        throw invalid_argument("non-digit port number in ssh config");
-                    }
-                    this->port_ = stoi(string(ps));
-                    if (!(0 < this->port_ && this->port_ < 65536)) {
-                        throw invalid_argument("invalid port number ssh config");
+                        this->identity_files_.push_back(identity_file);
+                    } else if (cmd == "user" && !username_given && !user_set) {
+                        user_set = true;
+                        string user;
+                        iss >> user;
+                        user = strip_quotes(user);
+                        this->username_ = user;
+                    } else if (cmd == "port" && !port_given && !port_set) {
+                        port_set = true;
+                        string ps;
+                        iss >> ps;
+                        ps = strip_quotes(ps);
+
+                        if (!all_of(ps.begin(), ps.end(), ::isdigit)) {
+                            throw invalid_argument("non-digit port number in ssh config");
+                        }
+                        this->port_ = stoi(string(ps));
+                        if (!(0 < this->port_ && this->port_ < 65536)) {
+                            throw invalid_argument("invalid port number ssh config");
+                        }
                     }
                 }
             }
