@@ -47,9 +47,10 @@ Get and build the 3rd party dependencies:
 
     # OpenSSL
     cd $WORKDIR
-    curl -L -O https://www.openssl.org/source/openssl-1.1.1h.tar.gz
-    tar -xzf openssl-1.1.1h.tar.gz
-    cd openssl-1.1.1h
+    git clone https://github.com/openssl/openssl.git
+
+    cd openssl
+    git checkout tags/openssl-3.0.5
     if [[ "$OSTYPE" == "darwin"* ]]; then
         export CFLAGS=-mmacosx-version-min=10.13
         export LDFLAGS=-mmacosx-version-min=10.13
@@ -65,10 +66,11 @@ Get and build the 3rd party dependencies:
     cd $WORKDIR
     git clone https://github.com/libssh2/libssh2.git
     cd libssh2
+    git checkout tags/libssh2-1.10.0
     mkdir mybuild
     cd mybuild
-    export CMAKE_PREFIX_PATH="$WORKDIR/openssl-1.1.1h"
-    cmake -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF -DOPENSSL_USE_STATIC_LIBS=TRUE ..
+    export CMAKE_PREFIX_PATH="$WORKDIR/openssl"
+    cmake -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DBUILD_EXAMPLES=ON -DBUILD_TESTING=OFF -DOPENSSL_USE_STATIC_LIBS=TRUE ..
     cmake --build .
 
 
