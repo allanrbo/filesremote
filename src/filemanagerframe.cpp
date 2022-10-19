@@ -101,6 +101,28 @@ FileManagerFrame::FileManagerFrame(wxConfigBase *config) : wxFrame(
     auto *menuBar = new wxMenuBar();
     this->SetMenuBar(menuBar);
 
+#ifdef __WXOSX__
+    auto *connections_menu = new wxMenu();
+    menuBar->Append(connections_menu, "&Connections");
+
+    connections_menu->Append(ID_START_NEW_INSTANCE, "&Start another instance\tCtrl+I",
+                      "Start a separate instance of FilesRemote for connecting to another server");
+    this->Bind(wxEVT_MENU, [&](wxCommandEvent &event) {
+        string exePath = wxStandardPaths::Get().GetExecutablePath().ToStdString(wxMBConvUTF8());
+        string appBundlePath = regex_replace(exePath, regex("/Contents/MacOS/filesremote$"), "");
+
+        // This would be highly suspicious, so let's just drop it.
+        if (regex_search(appBundlePath, regex("\""))) {
+            return;
+        }
+
+        wxExecute(wxString::FromUTF8("/usr/bin/open -n \"" + appBundlePath + "\""), wxEXEC_ASYNC);
+    }, ID_START_NEW_INSTANCE);
+
+    connections_menu->Append(wxID_EXIT, "E&xit", "Quit this program");
+    // This item is also in the File menu, and binding is done there.
+#endif
+
     auto *file_menu = new wxMenu();
     menuBar->Append(file_menu, "&File");
 
@@ -1425,7 +1447,7 @@ void FileManagerFrame::DownloadFileForEdit(string remote_path) {
 #endif
     string local_dir = normalize_path(local_path + "/..");
     // TODO(allan): restrict permissions
-    // TODO(allan): handle local file creation error seperately from a connection errors
+    // TODO(allan): handle local file creation error separately from a connection errors
     create_directories(localPathUnicode(local_dir));
 
     this->sftp_thread_channel_->Put(SftpThreadCmdDownload{local_path, remote_path, true});
