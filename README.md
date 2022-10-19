@@ -3,6 +3,9 @@ FilesRemote
 
 [Download](https://github.com/allanrbo/filesremote/releases/)
 
+[![Github All 
+Releases](https://img.shields.io/github/downloads/allanrbo/filesremote/total.svg)](https://github.com/allanrbo/filesremote/releases/)
+
 ---
 
 An SSH file manager.
