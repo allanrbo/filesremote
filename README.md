@@ -46,7 +46,7 @@ Usage: filesremote [-h] [-i <str>] [-pw <str>] [[username@]host[:port]]
   -pw, --password=<str>         password to use for authentication and sudo (WARNING: Insecure! Will appear in your shell history!)
 Example: filesremote example.com
 Example: filesremote 192.168.1.60
-Example: filesremote user1@192.168.1.60:22
+Example: filesremote user1@192.168.1.60:2222
 Example: filesremote 2001:db8::1
 Example: filesremote [2001:db8::1]
 Example: filesremote [2001:db8::1]:2222
@@ -56,7 +56,11 @@ Defaults to your local username and port 22 if unspecified.
 
 ### MacOS specific
 
-On first run the app will be blocked, because I do not have an Apple Developer account. Unblock it in this System Preferences pages:
+On first run the app will be blocked, because I do not have an Apple Developer account. From MacOS version 13, it seems that the way to unblock it is to right click and click Open in from Applications:
+
+![Right click and click Open in from Applications](graphics/mac13_security_screenshot.png)
+
+On MacOS versions prior to 13, unblock it in this System Preferences pages:
 
 ![Security & Privacy system preferences page](graphics/mac_security_screenshot.png)
 
