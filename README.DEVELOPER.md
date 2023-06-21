@@ -70,6 +70,7 @@ Get and build the 3rd party dependencies:
     mkdir mybuild
     cd mybuild
     export CMAKE_PREFIX_PATH="$WORKDIR/openssl"
+    # If on Windows, additonally add the param -DWIN32=1 to the following line.
     cmake -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DBUILD_EXAMPLES=ON -DBUILD_TESTING=OFF -DOPENSSL_USE_STATIC_LIBS=TRUE -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF ..
     cmake --build .
     # This library registers itself in the registry at ~/.cmake/packages/
