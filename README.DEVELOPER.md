@@ -66,12 +66,13 @@ Get and build the 3rd party dependencies:
     cd $WORKDIR
     git clone https://github.com/libssh2/libssh2.git
     cd libssh2
-    git checkout tags/libssh2-1.10.0
+    git checkout tags/libssh2-1.11.0
     mkdir mybuild
     cd mybuild
     export CMAKE_PREFIX_PATH="$WORKDIR/openssl"
-    cmake -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DBUILD_EXAMPLES=ON -DBUILD_TESTING=OFF -DOPENSSL_USE_STATIC_LIBS=TRUE ..
+    cmake -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13 -DBUILD_EXAMPLES=ON -DBUILD_TESTING=OFF -DOPENSSL_USE_STATIC_LIBS=TRUE -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF ..
     cmake --build .
+    # This library registers itself in the registry at ~/.cmake/packages/
 
 
 ### Building FilesRemote
