@@ -15,6 +15,9 @@ using std::vector;
 
 namespace fs = std::filesystem;
 
+const vector<string> image_extensions = {".jpg", ".jpeg", ".png", ".gif"};
+const vector<string> video_extensions = {".mp4", ".mkv", ".avi"};
+
 string normalize_path(string path) {
     replace(path.begin(), path.end(), '\\', '/');
 

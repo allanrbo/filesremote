@@ -88,8 +88,8 @@ string guessVideoViewer() {
     }
     return "";
 #elif __WXOSX__
-    if (exists("/System/Applications/QuickTime\\ Player.app")) {
-        return "open -a \"QuickTime\\ Player.app\"";
+    if (exists("/System/Applications/QuickTime Player.app")) {
+        return "open -a \"QuickTime Player.app\"";
     }
     return "";
 #else

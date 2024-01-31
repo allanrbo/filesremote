@@ -4,15 +4,17 @@
 #define SRC_PATHS_H_
 
 #include <string>
+#include <vector>
 
 using std::string;
 using std::vector;
 
-extern const vector<string> image_extensions = {".jpg", ".jpeg", ".png", ".gif"};
-extern const vector<string> video_extensions = {".mp4", ".mkv", ".avi"};
+extern const vector<string> image_extensions;
+extern const vector<string> video_extensions;
 
 string normalize_path(string path);
-
 string basename(string path);
+bool is_image(string path);
+bool is_video(string path);
 
 #endif  // SRC_PATHS_H_

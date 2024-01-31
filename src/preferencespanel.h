@@ -12,6 +12,8 @@
 using std::string;
 
 string guessTextEditor();
+string guessImageViewer();
+string guessVideoViewer();
 
 class PreferencesPageGeneralPanel : public wxPanel {
     wxConfigBase *config_;

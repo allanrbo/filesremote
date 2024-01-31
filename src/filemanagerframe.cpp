@@ -906,8 +906,9 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
             this->opened_files_local_[r.remote_path] = f;
         }
 
+        string editor;
         if (is_image(r.local_path)) {
-            string editor = string(this->config_->Read("/image_viewer", ""));
+            editor = string(this->config_->Read("/image_viewer", ""));
             if (editor.empty()) {
                 string msg = "No image viewer configured. Set one in Preferences.";
                 editor = guessImageViewer();
@@ -917,7 +918,7 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
                 }
             }
         } else if (is_video(r.local_path)) {
-            string editor = string(this->config_->Read("/video_viewer", ""));
+            editor = string(this->config_->Read("/video_viewer", ""));
             if (editor.empty()) {
                 string msg = "No video viewer configured. Set one in Preferences.";
                 editor = guessVideoViewer();
@@ -927,7 +928,7 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
                 }
             }
         } else {
-            string editor = string(this->config_->Read("/editor", ""));
+            editor = string(this->config_->Read("/editor", ""));
             if (editor.empty()) {
                 string msg = "No text editor configured. Set one in Preferences.";
                 editor = guessTextEditor();
