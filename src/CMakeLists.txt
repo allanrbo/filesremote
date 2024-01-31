@@ -22,7 +22,7 @@ add_executable(filesremote
         ${CMAKE_CURRENT_SOURCE_DIR}/../graphics/appicon/icon.icns  # Icon for macOS.
         )
 
-target_link_libraries(filesremote PRIVATE ${wxWidgets_LIBRARIES} OpenSSL::Crypto Libssh2::libssh2)
+target_link_libraries(filesremote PRIVATE ${wxWidgets_LIBRARIES} OpenSSL::Crypto Libssh2::libssh2_static)
 
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../graphics/appicon/icon.icns PROPERTIES
         MACOSX_PACKAGE_LOCATION "Resources")
