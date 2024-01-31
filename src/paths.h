@@ -6,6 +6,10 @@
 #include <string>
 
 using std::string;
+using std::vector;
+
+extern const vector<string> image_extensions = {".jpg", ".jpeg", ".png", ".gif"};
+extern const vector<string> video_extensions = {".mp4", ".mkv", ".avi"};
 
 string normalize_path(string path);
 

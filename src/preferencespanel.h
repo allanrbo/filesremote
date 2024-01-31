@@ -16,6 +16,8 @@ string guessTextEditor();
 class PreferencesPageGeneralPanel : public wxPanel {
     wxConfigBase *config_;
     wxTextCtrl *editor_path_;
+    wxTextCtrl *image_viewer_path_;
+    wxTextCtrl *video_viewer_path_;
     wxChoice *size_units_;
 
 public:

@@ -3,6 +3,7 @@
 #include "src/paths.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -11,6 +12,8 @@ using std::replace;
 using std::string;
 using std::stringstream;
 using std::vector;
+
+namespace fs = std::filesystem;
 
 string normalize_path(string path) {
     replace(path.begin(), path.end(), '\\', '/');
@@ -57,4 +60,16 @@ string basename(string path) {
     vector<string> parts;
     while (getline(s, segment, '/')) {}
     return segment;
+}
+
+bool is_image(string path) {
+    string extension = fs::path(path).extension();
+    auto it = std::find(image_extensions.begin(), image_extensions.end(), extension);
+    return it != std::end(image_extensions);
+}
+
+bool is_video(string path) {
+    string extension = fs::path(path).extension();
+    auto it = std::find(video_extensions.begin(), video_extensions.end(), extension);
+    return it != std::end(video_extensions);
 }

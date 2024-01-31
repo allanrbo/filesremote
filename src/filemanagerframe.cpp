@@ -906,15 +906,38 @@ void FileManagerFrame::SetupSftpThreadCallbacks() {
             this->opened_files_local_[r.remote_path] = f;
         }
 
-        string editor = string(this->config_->Read("/editor", ""));
-        if (editor.empty()) {
-            string msg = "No text editor configured. Set one in Preferences.";
-            editor = guessTextEditor();
+        if (is_image(r.local_path)) {
+            string editor = string(this->config_->Read("/image_viewer", ""));
             if (editor.empty()) {
-                wxMessageBox(wxString::FromUTF8(msg), "Text editor configuration", wxOK | wxICON_INFORMATION, this);
-                return;
+                string msg = "No image viewer configured. Set one in Preferences.";
+                editor = guessImageViewer();
+                if (editor.empty()) {
+                    wxMessageBox(wxString::FromUTF8(msg), "Image viewer configuration", wxOK | wxICON_INFORMATION, this);
+                    return;
+                }
+            }
+        } else if (is_video(r.local_path)) {
+            string editor = string(this->config_->Read("/video_viewer", ""));
+            if (editor.empty()) {
+                string msg = "No video viewer configured. Set one in Preferences.";
+                editor = guessVideoViewer();
+                if (editor.empty()) {
+                    wxMessageBox(wxString::FromUTF8(msg), "Video viewer configuration", wxOK | wxICON_INFORMATION, this);
+                    return;
+                }
+            }
+        } else {
+            string editor = string(this->config_->Read("/editor", ""));
+            if (editor.empty()) {
+                string msg = "No text editor configured. Set one in Preferences.";
+                editor = guessTextEditor();
+                if (editor.empty()) {
+                    wxMessageBox(wxString::FromUTF8(msg), "Text editor configuration", wxOK | wxICON_INFORMATION, this);
+                    return;
+                }
             }
         }
+        
         string path = regex_replace(r.local_path, regex("\""), "\\\"");
         wxExecute(wxString::FromUTF8(editor + " \"" + path + "\""), wxEXEC_ASYNC);
     }, ID_SFTP_THREAD_RESPONSE_DOWNLOAD);
