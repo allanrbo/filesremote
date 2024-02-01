@@ -93,19 +93,13 @@ string guessVideoViewer() {
     }
     return "";
 #else
-    return "";
+    return "xdg-open";
 #endif
 }
 
 
 string guessImageViewer() {
 #ifdef __WXMSW__
-    if (exists("C:\\Program Files\\Windows Media Player\\mplayer.exe")) {
-        return "C:\\Program Files\\Windows Media Player\\mplayer.exe";
-    }
-    if (exists("C:\\Program Files (x86)\\Windows Media Player\\mplayer.exe")) {
-        return "C:\\Program Files (x86)\\Windows Media Player\\mplayer.exe";
-    }
     return "";
 #elif __WXOSX__
     if (exists("/System/Applications/Preview.app")) {
@@ -113,7 +107,7 @@ string guessImageViewer() {
     }
     return "";
 #else
-    return "";
+    return "xdg-open";
 #endif
 }
 

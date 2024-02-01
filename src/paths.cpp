@@ -15,8 +15,8 @@ using std::vector;
 
 namespace fs = std::filesystem;
 
-const vector<string> image_extensions = {".jpg", ".jpeg", ".png", ".gif"};
-const vector<string> video_extensions = {".mp4", ".mkv", ".avi"};
+const vector<string> image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"};
+const vector<string> video_extensions = {".mp4", ".mkv", ".avi", ".mov", ".webm"};
 
 string normalize_path(string path) {
     replace(path.begin(), path.end(), '\\', '/');
@@ -65,14 +65,22 @@ string basename(string path) {
     return segment;
 }
 
-bool is_image(string path) {
-    string extension = fs::path(path).extension();
+
+string string_to_lower(string str) {
+    std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+    return str;
+}
+
+bool is_path_extension_in_vector(string path, const vector<string> extension_list) {
+    string extension = string_to_lower(fs::path(path).extension());
     auto it = std::find(image_extensions.begin(), image_extensions.end(), extension);
     return it != std::end(image_extensions);
 }
 
+bool is_image(string path) {
+    return is_path_extension_in_vector(path, image_extensions);
+}
+
 bool is_video(string path) {
-    string extension = fs::path(path).extension();
-    auto it = std::find(video_extensions.begin(), video_extensions.end(), extension);
-    return it != std::end(video_extensions);
+    return is_path_extension_in_vector(path, video_extensions);
 }
