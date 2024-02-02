@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(filesremote VERSION 1.12 LANGUAGES CXX)
+project(filesremote VERSION 1.13 LANGUAGES CXX)
 
 SET(CMAKE_CXX_STANDARD 17)
 

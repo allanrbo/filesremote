@@ -7,7 +7,7 @@ const char *licenses =
         "\n"
         "MIT License\n"
         "\n"
-        "Copyright (c) 2023 Allan Riordan Boll\n"
+        "Copyright (c) 2024 Allan Riordan Boll\n"
         "\n"
         "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
         "of this software and associated documentation files (the \"Software\"), to deal\n"
