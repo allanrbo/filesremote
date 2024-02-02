@@ -12,6 +12,9 @@ using std::string;
 using std::stringstream;
 using std::vector;
 
+const vector<string> image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"};
+const vector<string> video_extensions = {".mp4", ".mkv", ".avi", ".mov", ".webm"};
+
 string normalize_path(string path) {
     replace(path.begin(), path.end(), '\\', '/');
 
@@ -57,4 +60,32 @@ string basename(string path) {
     vector<string> parts;
     while (getline(s, segment, '/')) {}
     return segment;
+}
+
+
+string string_to_lower(string str) {
+    std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+    return str;
+}
+
+string get_file_extension(string str) {
+   size_t i = str.rfind('.', str.length());
+   if (i != string::npos) {
+      return str.substr(i);
+   }
+   return "";
+}
+
+bool is_path_extension_in_vector(string path, const vector<string> extension_list) {
+    string extension = string_to_lower(get_file_extension(path));
+    auto it = std::find(extension_list.begin(), extension_list.end(), extension);
+    return it != std::end(extension_list);
+}
+
+bool is_image(string path) {
+    return is_path_extension_in_vector(path, image_extensions);
+}
+
+bool is_video(string path) {
+    return is_path_extension_in_vector(path, video_extensions);
 }
