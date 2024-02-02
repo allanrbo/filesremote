@@ -3,7 +3,6 @@
 #include "src/paths.h"
 
 #include <algorithm>
-#include <filesystem>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -12,8 +11,6 @@ using std::replace;
 using std::string;
 using std::stringstream;
 using std::vector;
-
-namespace fs = std::filesystem;
 
 const vector<string> image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg"};
 const vector<string> video_extensions = {".mp4", ".mkv", ".avi", ".mov", ".webm"};
@@ -71,8 +68,16 @@ string string_to_lower(string str) {
     return str;
 }
 
+string get_file_extension(string str) {
+   size_t i = str.rfind('.', str.length());
+   if (i != string::npos) {
+      return str.substr(i);
+   }
+   return "";
+}
+
 bool is_path_extension_in_vector(string path, const vector<string> extension_list) {
-    string extension = string_to_lower(fs::path(path).extension());
+    string extension = string_to_lower(get_file_extension(path));
     auto it = std::find(extension_list.begin(), extension_list.end(), extension);
     return it != std::end(extension_list);
 }
