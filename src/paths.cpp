@@ -73,8 +73,8 @@ string string_to_lower(string str) {
 
 bool is_path_extension_in_vector(string path, const vector<string> extension_list) {
     string extension = string_to_lower(fs::path(path).extension());
-    auto it = std::find(image_extensions.begin(), image_extensions.end(), extension);
-    return it != std::end(image_extensions);
+    auto it = std::find(extension_list.begin(), extension_list.end(), extension);
+    return it != std::end(extension_list);
 }
 
 bool is_image(string path) {
